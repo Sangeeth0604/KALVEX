@@ -80,8 +80,8 @@ export const TOOLS_DATA: ToolItem[] = [
     outputFormat: "PNG, JPG, WEBP",
     executionModel: "client-wasm",
     executionLabel: "Client WASM",
-    status: "coming-soon",
-    statusLabel: "Coming Soon",
+    status: "available",
+    statusLabel: "Available",
     tags: ["image", "compress", "png", "jpg", "webp", "lossless"],
   },
   {

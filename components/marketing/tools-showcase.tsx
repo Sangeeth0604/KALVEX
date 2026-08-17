@@ -73,44 +73,71 @@ export function ToolsShowcase() {
 
         {/* Directory Matrix */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredTools.map((tool) => (
-            <div
-              key={tool.id}
-              className="p-5 rounded-xl bg-surface-base border border-border-default hover:border-border-accent/60 transition-all duration-150 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2.5">
-                  <span className="text-[11px] font-mono uppercase tracking-wider text-accent bg-accent-subtle px-2 py-0.5 rounded border border-border-accent-subtle">
-                    {tool.categoryLabel}
-                  </span>
-                  <span className="text-[11px] font-mono text-text-muted">
-                    {tool.executionLabel}
-                  </span>
+          {filteredTools.map((tool) => {
+            const isAvailable = tool.status === "available";
+            const content = (
+              <div
+                className={`p-5 rounded-xl bg-surface-base border transition-all duration-150 flex flex-col justify-between h-full ${
+                  isAvailable
+                    ? "border-border-default hover:border-accent hover:shadow-[0_4px_20px_-4px_rgba(0,245,155,0.2)] group"
+                    : "border-border-default hover:border-border-accent/60"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <span className="text-[11px] font-mono uppercase tracking-wider text-accent bg-accent-subtle px-2 py-0.5 rounded border border-border-accent-subtle">
+                      {tool.categoryLabel}
+                    </span>
+                    <span
+                      className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                        isAvailable
+                          ? "text-accent bg-accent-subtle border-border-accent-subtle font-semibold"
+                          : "text-text-muted bg-surface-raised border-border-subtle"
+                      }`}
+                    >
+                      {isAvailable ? "● Available" : tool.statusLabel}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-bold text-text-primary mb-2 flex items-center justify-between">
+                    <span>{tool.name}</span>
+                    {isAvailable && (
+                      <span className="text-accent text-sm transition-transform group-hover:translate-x-1">
+                        →
+                      </span>
+                    )}
+                  </h3>
+
+                  <p className="text-xs text-text-secondary leading-relaxed mb-4">
+                    {tool.description}
+                  </p>
                 </div>
 
-                <h3 className="text-base font-bold text-text-primary mb-2">
-                  {tool.name}
-                </h3>
-
-                <p className="text-xs text-text-secondary leading-relaxed mb-4">
-                  {tool.description}
-                </p>
+                <div className="pt-3 border-t border-border-subtle/80 flex items-center justify-between text-[11px] font-mono text-text-muted">
+                  <div className="flex items-center gap-1.5 overflow-hidden">
+                    <span className="text-text-muted">In:</span>
+                    <span className="text-text-primary truncate font-medium">
+                      {tool.inputFormats.join(", ")}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-text-muted">Out:</span>
+                    <span className="text-accent font-medium">{tool.outputFormat}</span>
+                  </div>
+                </div>
               </div>
+            );
 
-              <div className="pt-3 border-t border-border-subtle/80 flex items-center justify-between text-[11px] font-mono text-text-muted">
-                <div className="flex items-center gap-1.5 overflow-hidden">
-                  <span className="text-text-muted">In:</span>
-                  <span className="text-text-primary truncate font-medium">
-                    {tool.inputFormats.join(", ")}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-text-muted">Out:</span>
-                  <span className="text-accent font-medium">{tool.outputFormat}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            if (isAvailable) {
+              return (
+                <Link key={tool.id} href={`/tools/${tool.slug}`} className="block h-full outline-none">
+                  {content}
+                </Link>
+              );
+            }
+
+            return <div key={tool.id}>{content}</div>;
+          })}
         </div>
 
         {/* Bottom Mobile Action */}
