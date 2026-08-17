@@ -114,8 +114,8 @@ export const TOOLS_DATA: ToolItem[] = [
     outputFormat: "PDF",
     executionModel: "client-wasm",
     executionLabel: "Client WASM",
-    status: "coming-soon",
-    statusLabel: "Coming Soon",
+    status: "available",
+    statusLabel: "Available",
     tags: ["pdf", "merge", "split", "reorder", "assemble", "create"],
   },
   {
