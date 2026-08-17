@@ -164,8 +164,8 @@ export const TOOLS_DATA: ToolItem[] = [
     outputFormat: "TXT, PDF",
     executionModel: "client-wasm",
     executionLabel: "Client WASM OCR",
-    status: "coming-soon",
-    statusLabel: "Coming Soon",
+    status: "available",
+    statusLabel: "Available",
     tags: ["ocr", "text", "scan", "extract", "image", "pdf", "understand"],
   },
   {
