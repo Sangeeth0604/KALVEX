@@ -64,8 +64,8 @@ export const TOOLS_DATA: ToolItem[] = [
     outputFormat: "PDF",
     executionModel: "in-memory-worker",
     executionLabel: "Stream Engine",
-    status: "coming-soon",
-    statusLabel: "Coming Soon",
+    status: "available",
+    statusLabel: "Available",
     tags: ["pdf", "compress", "optimize", "shrink", "stream"],
   },
   {
