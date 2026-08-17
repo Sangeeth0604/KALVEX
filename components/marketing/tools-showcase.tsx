@@ -1,169 +1,23 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-type CategoryKey = "all" | "convert" | "compress" | "create" | "understand";
-
-interface ToolItem {
-  id: string;
-  name: string;
-  category: "convert" | "compress" | "create" | "understand";
-  categoryLabel: string;
-  description: string;
-  inputFormats: string[];
-  outputFormat: string;
-  executionMode: string;
-}
-
-const TOOLS_DATA: ToolItem[] = [
-  // Convert
-  {
-    id: "pdf-to-office",
-    name: "PDF to Office Formats",
-    category: "convert",
-    categoryLabel: "Convert",
-    description: "Transform PDF documents into editable Word and Excel structures with layout retention.",
-    inputFormats: ["PDF"],
-    outputFormat: "DOCX, XLSX",
-    executionMode: "In-Memory Engine",
-  },
-  {
-    id: "image-transcoder",
-    name: "Image & Vector Transcoder",
-    category: "convert",
-    categoryLabel: "Convert",
-    description: "Convert images to modern formats with color space and alpha channel preservation.",
-    inputFormats: ["PNG", "JPG", "SVG"],
-    outputFormat: "WEBP, AVIF, PNG",
-    executionMode: "Client WASM",
-  },
-  {
-    id: "markdown-to-pdf",
-    name: "Markdown & HTML to PDF",
-    category: "convert",
-    categoryLabel: "Convert",
-    description: "Render technical documentation and markdown files into clean, paginated PDF documents.",
-    inputFormats: ["MD", "HTML"],
-    outputFormat: "PDF",
-    executionMode: "Client WASM",
-  },
-
-  // Compress
-  {
-    id: "pdf-optimizer",
-    name: "PDF Stream Optimizer",
-    category: "compress",
-    categoryLabel: "Compress",
-    description: "Reduce document size via stream deduplication, font subsetting, and raster downsampling.",
-    inputFormats: ["PDF"],
-    outputFormat: "Optimized PDF",
-    executionMode: "Stream Engine",
-  },
-  {
-    id: "image-compressor",
-    name: "Lossless Image Compressor",
-    category: "compress",
-    categoryLabel: "Compress",
-    description: "Strip unnecessary metadata, optimize Huffman tables, and compress images directly in browser.",
-    inputFormats: ["PNG", "JPG", "WEBP"],
-    outputFormat: "Compressed Image",
-    executionMode: "Client WASM",
-  },
-  {
-    id: "media-compressor",
-    name: "Batch Media Compressor",
-    category: "compress",
-    categoryLabel: "Compress",
-    description: "Shrink multi-file assets to targeted file size thresholds with configurable bitrate presets.",
-    inputFormats: ["Audio", "Media"],
-    outputFormat: "Optimized Media",
-    executionMode: "In-Memory Worker",
-  },
-
-  // Create
-  {
-    id: "pdf-assembler",
-    name: "PDF Assembler & Splitter",
-    category: "create",
-    categoryLabel: "Create",
-    description: "Merge multiple documents, extract specific page ranges, and reorder sheets locally.",
-    inputFormats: ["Multiple PDFs"],
-    outputFormat: "Merged PDF",
-    executionMode: "Client WASM",
-  },
-  {
-    id: "document-sanitizer",
-    name: "Document Sanitizer & Redactor",
-    category: "create",
-    categoryLabel: "Create",
-    description: "Permanently scrub sensitive text areas, remove metadata tags, and sanitize document layers.",
-    inputFormats: ["PDF", "TXT"],
-    outputFormat: "Sanitized PDF",
-    executionMode: "Client-Side Engine",
-  },
-  {
-    id: "form-generator",
-    name: "Structured Invoice & Form Builder",
-    category: "create",
-    categoryLabel: "Create",
-    description: "Generate structured standard receipts, forms, and invoices from validated data inputs.",
-    inputFormats: ["Form Data", "JSON"],
-    outputFormat: "Standard PDF",
-    executionMode: "Client WASM",
-  },
-
-  // Understand
-  {
-    id: "ocr-extractor",
-    name: "Private OCR Text Extractor",
-    category: "understand",
-    categoryLabel: "Understand",
-    description: "Extract text from scanned documents and images using client-side optical character recognition.",
-    inputFormats: ["Scanned PDF", "Images"],
-    outputFormat: "Plain Text, PDF",
-    executionMode: "Client WASM OCR",
-  },
-  {
-    id: "table-parser",
-    name: "Tabular Structure Parser",
-    category: "understand",
-    categoryLabel: "Understand",
-    description: "Detect grid structures in document scans and extract tabular figures into spreadsheets.",
-    inputFormats: ["PDF", "Images"],
-    outputFormat: "CSV, XLSX",
-    executionMode: "Table Parser",
-  },
-  {
-    id: "diff-analyzer",
-    name: "Document Difference Analyzer",
-    category: "understand",
-    categoryLabel: "Understand",
-    description: "Compare two document revisions side-by-side to highlight textual and structural changes.",
-    inputFormats: ["Two Files"],
-    outputFormat: "Visual Diff",
-    executionMode: "Local Diff Engine",
-  },
-];
-
-const CATEGORIES: { key: CategoryKey; label: string; count: number }[] = [
-  { key: "all", label: "All Tools", count: 12 },
-  { key: "convert", label: "Convert", count: 3 },
-  { key: "compress", label: "Compress", count: 3 },
-  { key: "create", label: "Create", count: 3 },
-  { key: "understand", label: "Understand", count: 3 },
-];
+import { TOOLS_DATA, getCategoryList } from "@/lib/tools/tool-data";
+import { ToolCategory } from "@/lib/tools/types";
 
 export function ToolsShowcase() {
-  const [activeTab, setActiveTab] = useState<CategoryKey>("all");
+  const [activeTab, setActiveTab] = useState<"all" | ToolCategory>("all");
 
-  const filteredTools =
-    activeTab === "all"
+  const categories = useMemo(() => getCategoryList(), []);
+
+  const filteredTools = useMemo(() => {
+    return activeTab === "all"
       ? TOOLS_DATA
       : TOOLS_DATA.filter((tool) => tool.category === activeTab);
+  }, [activeTab]);
 
   return (
     <section className="py-16 md:py-24 border-t border-border-subtle bg-background">
@@ -191,7 +45,7 @@ export function ToolsShowcase() {
 
         {/* Category Tabs Workbench */}
         <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-8 border-b border-border-subtle scrollbar-none">
-          {CATEGORIES.map((tab) => {
+          {categories.map((tab) => {
             const isActive = activeTab === tab.key;
             return (
               <button
@@ -230,7 +84,7 @@ export function ToolsShowcase() {
                     {tool.categoryLabel}
                   </span>
                   <span className="text-[11px] font-mono text-text-muted">
-                    {tool.executionMode}
+                    {tool.executionLabel}
                   </span>
                 </div>
 
