@@ -1,155 +1,192 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { WorkspaceHeader } from "./workspace-header";
 import { DocumentViewer } from "./document-viewer";
-import { ChatConsole } from "./chat-console";
+import { OperationConsole } from "./operation-console";
+import { SAMPLE_DOCUMENT } from "@/lib/ai-workspace/mock-data";
 import {
-  SAMPLE_DOCUMENT,
-  INITIAL_CHAT_MESSAGES,
-} from "@/lib/ai-workspace/mock-data";
-import { ChatMessage, Citation } from "@/lib/ai-workspace/types";
+  AiOperationOptions,
+  AiOperationResult,
+  AiOperationType,
+  DocumentContext,
+  ProcessingPrivacyLevel,
+} from "@/lib/ai-workspace/types";
 import { DocumentArtifact } from "@/lib/document-bus/types";
-import { documentBus } from "@/lib/document-bus/document-bus";
+import { documentBus } from "@/lib/document-bus";
+import { buildDocumentContext } from "@/lib/ai-workspace/context-builder";
+import { executeAiOperation } from "@/lib/ai-workspace/ai-client";
 
 function AiWorkspaceInner() {
   const searchParams = useSearchParams();
   const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
 
   const [artifact, setArtifact] = useState<DocumentArtifact | null>(null);
+  const [context, setContext] = useState<DocumentContext | null>(null);
   const [notFoundId, setNotFoundId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>("sec-3");
+  const [privacyLevel, setPrivacyLevel] = useState<ProcessingPrivacyLevel>("LOCAL_ONLY");
 
-  // Load artifact transferred from Document Bus
+  const [activeOperation, setActiveOperation] = useState<AiOperationType>("summarize");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStage, setProcessingStage] = useState("");
+  const [currentResult, setCurrentResult] = useState<AiOperationResult | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // 1. Load Artifact from Document Bus and Build Local Context
   useEffect(() => {
     if (!artifactParam) return;
+
     const timer = setTimeout(() => {
       const art = documentBus.getArtifact(artifactParam);
       if (art) {
         setArtifact(art);
         setNotFoundId(null);
-        setSelectedSectionId("block-1");
-        // Add initial greeting acknowledging the received document artifact
-        const textPreview = art.metadata?.text ? ` (${art.metadata.text.length} characters indexed)` : "";
-        setMessages([
-          {
-            id: `msg-welcome`,
-            sender: "assistant",
-            text: `Document artifact "${art.name}" received via Document Bus from ${art.sourceTool}.${textPreview} Binary payload (${art.mimeType}) buffered in local RAM. You may inspect document blocks on the left or test console interactions.`,
-            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
+        setPrivacyLevel("LOCAL_ONLY");
+        setErrorMessage(null);
+
+        // Build 100% In-Browser Context
+        buildDocumentContext(
+          art.file,
+          art.name,
+          art.mimeType,
+          art.id,
+          art.metadata?.text as string | undefined
+        )
+          .then((builtContext) => {
+            setContext(builtContext);
+            setSelectedSectionId("block-1");
+          })
+          .catch((err) => {
+            console.error("Context preparation failed:", err);
+            setErrorMessage(err instanceof Error ? err.message : "Failed to extract local text context.");
+          });
       } else {
-        // Artifact ID not found in memory (e.g. refreshed session or invalid ID)
         setNotFoundId(artifactParam);
         setArtifact(null);
+        setContext(null);
       }
     }, 0);
+
     return () => clearTimeout(timer);
   }, [artifactParam]);
 
-  const handleSendMessage = (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
-      sender: "user",
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
+  // 2. Execute Selected AI Operation
+  const handleExecuteOperation = useCallback(
+    async (op: AiOperationType, options?: AiOperationOptions) => {
+      if (!context) return;
 
-    let replyCitation: Citation | undefined;
-    let replyText = "Based on the loaded document, this provision is governed by standard enterprise terms.";
+      setIsProcessing(true);
+      setErrorMessage(null);
+      setProcessingStage("Formatting Local Context...");
+      setPrivacyLevel("AI_CLOUD_TRANSIT");
 
-    const lower = text.toLowerCase();
-    if (lower.includes("termination") || lower.includes("retention") || lower.includes("purge") || lower.includes("section 4")) {
-      replyText = "Section 4.2 mandates that all temporary memory allocations, cached document representations, and session vectors must be irrevocably purged within 30 days of termination notice.";
-      replyCitation = {
-        id: `cit-${Date.now()}`,
-        page: 7,
-        clause: "Clause 4.2",
-        excerpt: "All temporary memory allocations, cached document representations, and session vectors must be irrevocably purged within 30 calendar days...",
-        sectionId: "sec-3",
-      };
-      setSelectedSectionId("sec-3");
-    } else if (lower.includes("liability") || lower.includes("cap") || lower.includes("section 6")) {
-      replyText = "Section 6.1 establishes that aggregate liability is capped at the total amount paid by the Customer in the preceding twelve (12) months, excluding IP breaches and gross negligence.";
-      replyCitation = {
-        id: `cit-${Date.now()}`,
-        page: 9,
-        clause: "Clause 6.1",
-        excerpt: "Neither party's total aggregate liability arising out of or related to this Agreement shall exceed the total amount paid by Customer in the preceding twelve (12) months.",
-        sectionId: "sec-4",
-      };
-      setSelectedSectionId("sec-4");
-    } else if (lower.includes("training") || lower.includes("model") || lower.includes("ownership") || lower.includes("section 2")) {
-      replyText = "Section 2.4 explicitly guarantees that Customer retains exclusive data ownership and that Service Provider shall not use Customer Data for model training or permanent archiving.";
-      replyCitation = {
-        id: `cit-${Date.now()}`,
-        page: 3,
-        clause: "Clause 2.4",
-        excerpt: "Customer retains sole and exclusive ownership... Service Provider shall not use Customer Data for model training or permanent archiving.",
-        sectionId: "sec-2",
-      };
-      setSelectedSectionId("sec-2");
-    }
+      try {
+        setProcessingStage("Executing Intelligence Operation via AI Proxy...");
+        const result = await executeAiOperation({
+          operation: op,
+          context,
+          options,
+        });
 
-    const assistantMsg: ChatMessage = {
-      id: `msg-${Date.now() + 1}`,
-      sender: "assistant",
-      text: replyText,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      citations: replyCitation ? [replyCitation] : undefined,
-    };
+        setProcessingStage("Validating Structured Schema & Citations...");
+        setCurrentResult(result);
+        setPrivacyLevel("AI_COMPLETED");
+      } catch (err: unknown) {
+        console.error("AI operation failed:", err);
+        setErrorMessage(
+          err && typeof err === "object" && "message" in err
+            ? (err as { message: string }).message
+            : "AI operation failed."
+        );
+        setPrivacyLevel("LOCAL_ONLY");
+      } finally {
+        setIsProcessing(false);
+        setProcessingStage("");
+      }
+    },
+    [context]
+  );
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-  };
-
-  const handleSelectCitation = (citation: Citation) => {
-    setSelectedSectionId(citation.sectionId);
-  };
-
+  // 3. Clear Session & Clean Up Memory
   const handleClearSession = () => {
     if (artifact) {
       documentBus.removeArtifact(artifact.id);
     }
-    setMessages([]);
     setArtifact(null);
+    setContext(null);
     setNotFoundId(null);
+    setCurrentResult(null);
     setSelectedSectionId(null);
+    setPrivacyLevel("LOCAL_ONLY");
+    setErrorMessage(null);
   };
 
   const handleOpenDocument = () => {
     setSelectedSectionId("block-1");
   };
 
+  const handleSelectCitation = (page: number) => {
+    if (!context) return;
+    // Find matching block in context
+    const idx = context.pages.findIndex((p) => p.pageNumber === page);
+    if (idx >= 0) {
+      setSelectedSectionId(`block-${idx + 1}`);
+    }
+  };
+
   return (
     <div className="pb-16">
       <Container size="xl">
         <WorkspaceHeader
-          document={SAMPLE_DOCUMENT}
           artifact={artifact}
+          context={context}
+          privacyLevel={privacyLevel}
           notFoundId={notFoundId}
           onClearSession={handleClearSession}
-          onOpenDocument={artifact ? handleOpenDocument : undefined}
+          onOpenDocument={context ? handleOpenDocument : undefined}
         />
 
-        {/* Split Layout: Document Viewer (Left) & Chat/Intelligence Console (Right) */}
+        {/* Global Error Banner */}
+        {errorMessage && (
+          <div className="mb-6 p-4 rounded-xl bg-error/10 border border-error/30 text-xs font-mono text-error flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <span className="font-bold">⚠ Error:</span>
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setErrorMessage(null)}
+              className="text-text-muted hover:text-text-primary text-xs underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Two-Panel Layout: Context Inspector (Left) & Operation Console (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5 h-[680px]">
             <DocumentViewer
               document={SAMPLE_DOCUMENT}
               artifact={artifact}
+              context={context}
               selectedSectionId={selectedSectionId}
               onSelectSection={setSelectedSectionId}
             />
           </div>
 
           <div className="lg:col-span-7 h-[680px]">
-            <ChatConsole
-              messages={messages}
-              onSendMessage={handleSendMessage}
+            <OperationConsole
+              context={context}
+              activeOperation={activeOperation}
+              onSelectOperation={setActiveOperation}
+              onExecuteOperation={handleExecuteOperation}
+              isProcessing={isProcessing}
+              processingStage={processingStage}
+              currentResult={currentResult}
               onSelectCitation={handleSelectCitation}
             />
           </div>
