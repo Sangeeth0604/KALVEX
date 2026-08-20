@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,8 +21,12 @@ import {
   compressImage,
   readImageMetadata,
 } from "@/lib/tools/image-compressor/image-compressor";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
-export function ImageCompressor() {
+function ImageCompressorInner() {
+  const searchParams = useSearchParams();
+  const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
+
   const [state, setState] = useState<CompressionState>("idle");
   const [file, setFile] = useState<File | null>(null);
   const [metadata, setMetadata] = useState<ImageMetadata | null>(null);
@@ -58,6 +63,38 @@ export function ImageCompressor() {
     };
   }, [cleanupUrls]);
 
+  // Handle incoming document from Document Bus via ?artifact=... or ?docId=...
+  useEffect(() => {
+    if (!artifactParam || metadata) return;
+
+    const timer = setTimeout(() => {
+      const art = documentBus.getArtifact(artifactParam);
+      if (art) {
+        const fileObj =
+          art.file instanceof File
+            ? art.file
+            : new File([art.file], art.name, { type: art.mimeType });
+
+        readImageMetadata(fileObj)
+          .then((meta) => {
+            setFile(fileObj);
+            setMetadata(meta);
+            setState("file-selected");
+          })
+          .catch((err) => {
+            setError(
+              (err as CompressionError).message !== undefined
+                ? (err as CompressionError)
+                : { code: "DECODE_FAILED", message: "Failed to read transferred image file." }
+            );
+            setState("error");
+          });
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [artifactParam, metadata]);
+
   const handleFileSelected = async (selectedFile: File) => {
     cleanupUrls();
     setError(null);
@@ -90,6 +127,25 @@ export function ImageCompressor() {
 
     try {
       const res = await compressImage(file, settings, metadata);
+
+      // Register compressed output into Document Bus
+      const busDoc = documentBus.publishArtifact({
+        file: res.effectiveBlob,
+        name: res.effectiveFileName,
+        mimeType: res.outputMimeType,
+        sourceTool: "image-compressor",
+        kind: "image",
+        previewUrl: res.effectiveObjectUrl,
+        metadata: {
+          width: res.width,
+          height: res.height,
+          savingsPercentage: res.savingsPercentage,
+          reductionBytes: res.reductionBytes,
+          durationMs: res.durationMs,
+        },
+      });
+
+      res.busDocumentId = busDoc.id;
       setResult(res);
       setState("success");
     } catch (err) {
@@ -120,10 +176,10 @@ export function ImageCompressor() {
             Tools
           </Link>
           <span>/</span>
-          <span className="text-text-primary">Image Compressor</span>
+          <span className="text-text-primary">Lossless Image Compressor</span>
         </div>
 
-        {/* Header & Local Processing Banner */}
+        {/* Header & Local Processing Indicator */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-border-subtle mb-8">
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 mb-3">
@@ -131,16 +187,16 @@ export function ImageCompressor() {
                 PROCESSING: LOCAL
               </Badge>
               <span className="text-xs font-mono text-text-muted bg-surface-raised px-2 py-0.5 rounded border border-border-subtle">
-                Client Canvas Engine
+                In-Memory Client Engine
               </span>
             </div>
 
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary leading-tight mb-2">
-              Lossless & Optimized Image Compressor
+              Lossless Image Compressor
             </h1>
 
             <p className="text-sm sm:text-base text-text-secondary leading-relaxed">
-              Compress PNG, JPG, JPEG, and WEBP images locally in your browser. Your image remains strictly on this device and is never transmitted to an external server.
+              Compress PNG, JPG, and WEBP images directly inside your browser. No files are uploaded to any server.
             </p>
           </div>
 
@@ -167,9 +223,9 @@ export function ImageCompressor() {
           </div>
         )}
 
-        {/* Main Workspace Workflow */}
+        {/* Empty Upload State */}
         {state === "idle" && (
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-3xl mx-auto">
             <UploadZone
               onFileSelected={handleFileSelected}
               onError={(err) => {
@@ -180,9 +236,9 @@ export function ImageCompressor() {
           </div>
         )}
 
+        {/* Ready / File Selected State */}
         {(state === "file-selected" || state === "compressing") && metadata && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: Image Preview & Metadata (5 cols) */}
             <div className="lg:col-span-5">
               <ImagePreview
                 metadata={metadata}
@@ -190,8 +246,6 @@ export function ImageCompressor() {
                 disabled={state === "compressing"}
               />
             </div>
-
-            {/* Right Column: Compression Controls (7 cols) */}
             <div className="lg:col-span-7">
               <CompressionControls
                 metadata={metadata}
@@ -204,34 +258,44 @@ export function ImageCompressor() {
           </div>
         )}
 
+        {/* Success / Result State */}
         {state === "success" && metadata && result && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: Original Image Preview (5 cols) */}
             <div className="lg:col-span-5">
-              <ImagePreview
-                metadata={metadata}
-                onChangeImage={handleReset}
-              />
+              <ImagePreview metadata={metadata} onChangeImage={handleReset} />
             </div>
-
-            {/* Right Column: Compression Result (7 cols) */}
             <div className="lg:col-span-7">
               <CompressionResult result={result} onReset={handleReset} />
             </div>
           </div>
         )}
 
+        {/* Error Fallback */}
         {state === "error" && !metadata && (
           <div className="max-w-xl mx-auto text-center p-8 rounded-xl border border-border-default bg-surface-base">
             <p className="text-sm text-text-secondary mb-4">
               Unable to proceed with image compression.
             </p>
-            <Button variant="primary" size="md" onClick={handleReset}>
+            <Button variant="primary" size="md" onClick={handleReset} className="font-mono text-xs">
               Select Another Image
             </Button>
           </div>
         )}
       </Container>
     </div>
+  );
+}
+
+export function ImageCompressor() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-24 text-center text-xs font-mono text-text-muted">
+          Loading compressor...
+        </div>
+      }
+    >
+      <ImageCompressorInner />
+    </Suspense>
   );
 }

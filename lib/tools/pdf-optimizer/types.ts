@@ -41,6 +41,7 @@ export interface OptimizationResult {
   candidateFileName: string;
   durationMs: number;
   settings: OptimizationSettings;
+  busDocumentId?: string;
 }
 
 export type PdfOptimizerErrorCode =

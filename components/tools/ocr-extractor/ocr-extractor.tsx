@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { UploadZone } from "./upload-zone";
@@ -20,8 +21,12 @@ import {
   runOcrExtraction,
   terminateOcrWorker,
 } from "@/lib/tools/ocr-extractor/ocr-engine";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
-export function OcrExtractor() {
+function OcrExtractorInner() {
+  const searchParams = useSearchParams();
+  const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
+
   const [state, setState] = useState<OcrState>("empty");
   const [docInfo, setDocInfo] = useState<LoadedDocumentInfo | null>(null);
   const [progress, setProgress] = useState<ProgressType | null>(null);
@@ -38,7 +43,7 @@ export function OcrExtractor() {
     };
   }, [docInfo]);
 
-  const handleFileSelected = async (file: File) => {
+  const handleFileSelected = useCallback(async (file: File) => {
     if (docInfo?.previewUrl && docInfo.previewUrl.startsWith("blob:")) {
       URL.revokeObjectURL(docInfo.previewUrl);
     }
@@ -58,6 +63,25 @@ export function OcrExtractor() {
         setProgress(p);
       });
 
+      // Register into Document Bus with text metadata
+      const busDoc = documentBus.publishArtifact({
+        file: info.file,
+        name: info.name,
+        mimeType: info.type,
+        sourceTool: "ocr-extractor",
+        kind: "text",
+        previewUrl: info.previewUrl,
+        metadata: {
+          text: ocrRes.fullText,
+          pageCount: ocrRes.totalPages,
+          wordCount: ocrRes.totalWords,
+          linesCount: ocrRes.totalLines,
+          confidence: ocrRes.averageConfidence,
+          durationMs: ocrRes.durationMs,
+        },
+      });
+
+      ocrRes.busDocumentId = busDoc.id;
       setResult(ocrRes);
       setState("success");
     } catch (err) {
@@ -68,7 +92,26 @@ export function OcrExtractor() {
       setError(ocrErr);
       setState("error");
     }
-  };
+  }, [docInfo]);
+
+  // Handle incoming document from Document Bus via ?artifact=... or ?docId=...
+  useEffect(() => {
+    if (!artifactParam || docInfo) return;
+
+    const timer = setTimeout(() => {
+      const art = documentBus.getArtifact(artifactParam);
+      if (art) {
+        const fileObj =
+          art.file instanceof File
+            ? art.file
+            : new File([art.file], art.name, { type: art.mimeType });
+
+        handleFileSelected(fileObj);
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [artifactParam, docInfo, handleFileSelected]);
 
   const handleReset = useCallback(() => {
     if (docInfo?.previewUrl && docInfo.previewUrl.startsWith("blob:")) {
@@ -183,10 +226,7 @@ export function OcrExtractor() {
         {state === "success" && docInfo && result && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5">
-              <DocumentPreview
-                docInfo={docInfo}
-                onChangeFile={handleReset}
-              />
+              <DocumentPreview docInfo={docInfo} onChangeFile={handleReset} />
             </div>
             <div className="lg:col-span-7">
               <OcrResultViewer result={result} onReset={handleReset} />
@@ -211,5 +251,19 @@ export function OcrExtractor() {
         )}
       </Container>
     </div>
+  );
+}
+
+export function OcrExtractor() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-24 text-center text-xs font-mono text-text-muted">
+          Loading OCR engine...
+        </div>
+      }
+    >
+      <OcrExtractorInner />
+    </Suspense>
   );
 }

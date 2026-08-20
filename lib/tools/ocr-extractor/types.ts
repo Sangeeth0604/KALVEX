@@ -36,6 +36,7 @@ export interface OcrResult {
   fileName: string;
   fileSize: number;
   inputType: OcrInputType;
+  busDocumentId?: string;
 }
 
 export type OcrErrorCode =

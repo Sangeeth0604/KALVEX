@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PdfExportResult } from "@/lib/tools/pdf-assembler/types";
 import { formatBytes } from "@/lib/tools/pdf-assembler/pdf-engine";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
 interface PdfExportPanelProps {
   result: PdfExportResult;
@@ -16,6 +18,9 @@ export function PdfExportPanel({
   onReset,
   onBackToWorkspace,
 }: PdfExportPanelProps) {
+  const router = useRouter();
+  const [showSendMenu, setShowSendMenu] = useState(false);
+
   const handleDownload = () => {
     const a = document.createElement("a");
     a.href = result.objectUrl;
@@ -23,6 +28,22 @@ export function PdfExportPanel({
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  const compatibleDestinations = documentBus.getCompatibleDestinations(
+    "application/pdf",
+    "pdf-assembler"
+  );
+
+  const handleSendToTool = (targetSlug: string) => {
+    if (!result.busDocumentId) return;
+    const art = documentBus.getArtifact(result.busDocumentId);
+    if (!art) return;
+    const targetUrl =
+      targetSlug === "ai-workspace"
+        ? `/ai-workspace?artifact=${art.id}`
+        : `/tools/${targetSlug}?artifact=${art.id}`;
+    router.push(targetUrl);
   };
 
   return (
@@ -83,52 +104,104 @@ export function PdfExportPanel({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-3 pt-2">
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={handleDownload}
-          className="flex-1 font-bold shadow-subtle"
-          leftIcon={
-            <svg
-              className="h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
-          }
-        >
-          Download PDF Document
-        </Button>
-
-        {onBackToWorkspace && (
+      {/* Action Buttons & Document Bus Bridge */}
+      <div className="flex flex-col gap-3 pt-2">
+        <div className="flex flex-col sm:flex-row gap-3">
           <Button
-            variant="outline"
+            variant="primary"
             size="lg"
-            onClick={onBackToWorkspace}
-            className="sm:w-auto font-mono text-xs"
+            onClick={handleDownload}
+            className="flex-1 font-bold shadow-subtle"
+            leftIcon={
+              <svg
+                className="h-4 w-4"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+            }
           >
-            Edit Workspace
+            Download PDF Document
           </Button>
-        )}
 
-        <Button
-          variant="secondary"
-          size="lg"
-          onClick={onReset}
-          className="sm:w-auto font-mono text-xs text-text-secondary"
-        >
-          Start Over
-        </Button>
+          {/* Document Bus Send to menu */}
+          {compatibleDestinations.length > 0 && result.busDocumentId && (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => setShowSendMenu((prev) => !prev)}
+                className="w-full sm:w-auto font-mono text-xs text-accent border-border-accent/40"
+                rightIcon={
+                  <svg
+                    className={`h-3 w-3 transition-transform ${
+                      showSendMenu ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                }
+              >
+                Send to...
+              </Button>
+
+              {showSendMenu && (
+                <div className="absolute bottom-full mb-2 right-0 w-56 rounded-xl bg-surface-raised border border-border-default shadow-xl p-1.5 z-20 space-y-1 animate-in fade-in zoom-in-95">
+                  <div className="px-2.5 py-1 text-[10px] font-mono text-text-muted uppercase border-b border-border-subtle mb-1">
+                    Send to KALVEX Tool
+                  </div>
+                  {compatibleDestinations.map((dest) => (
+                    <button
+                      key={dest.slug}
+                      type="button"
+                      onClick={() => handleSendToTool(dest.slug)}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-mono text-text-primary hover:bg-surface-hover hover:text-accent transition-colors flex items-center justify-between cursor-pointer"
+                    >
+                      <span>{dest.name}</span>
+                      <span className="text-[10px] text-accent">→</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {onBackToWorkspace && (
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={onBackToWorkspace}
+              className="sm:w-auto font-mono text-xs"
+            >
+              Edit Workspace
+            </Button>
+          )}
+
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={onReset}
+            className="sm:w-auto font-mono text-xs text-text-secondary"
+          >
+            Start Over
+          </Button>
+        </div>
       </div>
     </div>
   );

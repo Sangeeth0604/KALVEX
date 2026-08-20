@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { WorkspaceHeader } from "./workspace-header";
 import { DocumentViewer } from "./document-viewer";
@@ -10,10 +11,45 @@ import {
   INITIAL_CHAT_MESSAGES,
 } from "@/lib/ai-workspace/mock-data";
 import { ChatMessage, Citation } from "@/lib/ai-workspace/types";
+import { DocumentArtifact } from "@/lib/document-bus/types";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
-export function AiWorkspaceContainer() {
+function AiWorkspaceInner() {
+  const searchParams = useSearchParams();
+  const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
+
+  const [artifact, setArtifact] = useState<DocumentArtifact | null>(null);
+  const [notFoundId, setNotFoundId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>("sec-3");
+
+  // Load artifact transferred from Document Bus
+  useEffect(() => {
+    if (!artifactParam) return;
+    const timer = setTimeout(() => {
+      const art = documentBus.getArtifact(artifactParam);
+      if (art) {
+        setArtifact(art);
+        setNotFoundId(null);
+        setSelectedSectionId("block-1");
+        // Add initial greeting acknowledging the received document artifact
+        const textPreview = art.metadata?.text ? ` (${art.metadata.text.length} characters indexed)` : "";
+        setMessages([
+          {
+            id: `msg-welcome`,
+            sender: "assistant",
+            text: `Document artifact "${art.name}" received via Document Bus from ${art.sourceTool}.${textPreview} Binary payload (${art.mimeType}) buffered in local RAM. You may inspect document blocks on the left or test console interactions.`,
+            timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
+      } else {
+        // Artifact ID not found in memory (e.g. refreshed session or invalid ID)
+        setNotFoundId(artifactParam);
+        setArtifact(null);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [artifactParam]);
 
   const handleSendMessage = (text: string) => {
     const userMsg: ChatMessage = {
@@ -75,8 +111,17 @@ export function AiWorkspaceContainer() {
   };
 
   const handleClearSession = () => {
+    if (artifact) {
+      documentBus.removeArtifact(artifact.id);
+    }
     setMessages([]);
+    setArtifact(null);
+    setNotFoundId(null);
     setSelectedSectionId(null);
+  };
+
+  const handleOpenDocument = () => {
+    setSelectedSectionId("block-1");
   };
 
   return (
@@ -84,7 +129,10 @@ export function AiWorkspaceContainer() {
       <Container size="xl">
         <WorkspaceHeader
           document={SAMPLE_DOCUMENT}
+          artifact={artifact}
+          notFoundId={notFoundId}
           onClearSession={handleClearSession}
+          onOpenDocument={artifact ? handleOpenDocument : undefined}
         />
 
         {/* Split Layout: Document Viewer (Left) & Chat/Intelligence Console (Right) */}
@@ -92,6 +140,7 @@ export function AiWorkspaceContainer() {
           <div className="lg:col-span-5 h-[680px]">
             <DocumentViewer
               document={SAMPLE_DOCUMENT}
+              artifact={artifact}
               selectedSectionId={selectedSectionId}
               onSelectSection={setSelectedSectionId}
             />
@@ -107,5 +156,19 @@ export function AiWorkspaceContainer() {
         </div>
       </Container>
     </div>
+  );
+}
+
+export function AiWorkspaceContainer() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-24 text-center text-xs font-mono text-text-muted">
+          Loading AI Workspace...
+        </div>
+      }
+    >
+      <AiWorkspaceInner />
+    </Suspense>
   );
 }

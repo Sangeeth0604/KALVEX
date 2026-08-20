@@ -29,6 +29,7 @@ export interface PdfExportResult {
   objectUrl: string;
   durationMs: number;
   operationType: "assemble" | "extract";
+  busDocumentId?: string;
 }
 
 export type PdfErrorCode =

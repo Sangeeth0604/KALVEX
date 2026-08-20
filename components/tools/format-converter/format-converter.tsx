@@ -8,42 +8,50 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { UploadZone } from "./upload-zone";
 import { DocumentSummary } from "./document-summary";
-import { OptimizationControls } from "./optimization-controls";
-import { OptimizationResult } from "./optimization-result";
+import { ConversionControls } from "./conversion-controls";
+import { ConversionResult } from "./conversion-result";
 import {
-  DEFAULT_OPTIMIZATION_SETTINGS,
-  analyzePdfDocument,
-  optimizePdf,
-} from "@/lib/tools/pdf-optimizer/pdf-engine";
+  ConversionResult as ResultType,
+  ConversionSettings,
+  ConverterError,
+  ConverterState,
+  LoadedSourceInfo,
+} from "@/lib/tools/format-converter/types";
 import {
-  OptimizationResult as ResultType,
-  OptimizationSettings,
-  OptimizerState,
-  PdfDocAnalysis,
-  PdfOptimizerError,
-} from "@/lib/tools/pdf-optimizer/types";
+  analyzeSourceDocument,
+  convertDocument,
+} from "@/lib/tools/format-converter/format-converter-engine";
 import { documentBus } from "@/lib/document-bus/document-bus";
 
-function PdfOptimizerInner() {
+function FormatConverterInner() {
   const searchParams = useSearchParams();
   const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
 
-  const [state, setState] = useState<OptimizerState>("empty");
-  const [file, setFile] = useState<File | null>(null);
-  const [analysis, setAnalysis] = useState<PdfDocAnalysis | null>(null);
-  const [settings, setSettings] = useState<OptimizationSettings>(DEFAULT_OPTIMIZATION_SETTINGS);
+  const [state, setState] = useState<ConverterState>("empty");
+  const [source, setSource] = useState<LoadedSourceInfo | null>(null);
   const [result, setResult] = useState<ResultType | null>(null);
-  const [error, setError] = useState<PdfOptimizerError | null>(null);
+  const [error, setError] = useState<ConverterError | null>(null);
 
-  // Memory Cleanup Utility
+  const [settings, setSettings] = useState<ConversionSettings>({
+    targetFormat: "image/webp",
+    quality: 0.85,
+    pageSelection: "all",
+    pageRangeStart: 1,
+    pageRangeEnd: 1,
+  });
+
   const cleanupUrls = useCallback(() => {
-    if (result?.candidateObjectUrl) {
-      URL.revokeObjectURL(result.candidateObjectUrl);
+    if (source?.previewUrl && source.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(source.previewUrl);
     }
-    if (result?.effectiveObjectUrl && result.effectiveObjectUrl !== result.candidateObjectUrl) {
-      URL.revokeObjectURL(result.effectiveObjectUrl);
+    if (result?.pages) {
+      result.pages.forEach((p) => {
+        if (p.objectUrl && p.objectUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(p.objectUrl);
+        }
+      });
     }
-  }, [result]);
+  }, [source, result]);
 
   useEffect(() => {
     return () => {
@@ -51,30 +59,38 @@ function PdfOptimizerInner() {
     };
   }, [cleanupUrls]);
 
-  // Handle incoming document from Document Bus via ?artifact=... or ?docId=...
+  // Load document transferred from Document Bus via ?artifact=... or ?docId=...
   useEffect(() => {
-    if (!artifactParam || analysis) return;
+    if (!artifactParam || source) return;
 
     const timer = setTimeout(() => {
       const art = documentBus.getArtifact(artifactParam);
       if (art) {
-        const fileObj =
-          art.file instanceof File
-            ? art.file
-            : new File([art.file], art.name, { type: "application/pdf" });
-
         setState("analyzing");
-        analyzePdfDocument(fileObj)
-          .then((docAnalysis) => {
-            setFile(fileObj);
-            setAnalysis(docAnalysis);
+        analyzeSourceDocument(art.file, art.name)
+          .then((info) => {
+            setSource(info);
+            // Set sensible target format
+            if (info.inputType === "pdf") {
+              setSettings((prev) => ({
+                ...prev,
+                targetFormat: "image/png",
+                pageRangeEnd: info.pageCount,
+              }));
+            } else {
+              const ext = info.name.split(".").pop()?.toLowerCase();
+              setSettings((prev) => ({
+                ...prev,
+                targetFormat: ext === "png" ? "image/webp" : "image/png",
+              }));
+            }
             setState("ready");
           })
           .catch((err) => {
             setError(
-              (err as PdfOptimizerError).message !== undefined
-                ? (err as PdfOptimizerError)
-                : { code: "CORRUPTED_PDF", message: "Failed to load transferred PDF document." }
+              (err as ConverterError).message !== undefined
+                ? (err as ConverterError)
+                : { code: "CORRUPTED_FILE", message: "Failed to load transferred document." }
             );
             setState("error");
           });
@@ -82,75 +98,71 @@ function PdfOptimizerInner() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [artifactParam, analysis]);
+  }, [artifactParam, source]);
 
-  const handleFileSelected = async (selectedFile: File) => {
+  const handleFileSelected = async (file: File) => {
     cleanupUrls();
     setError(null);
     setResult(null);
     setState("analyzing");
 
     try {
-      const docAnalysis = await analyzePdfDocument(selectedFile);
-      setFile(selectedFile);
-      setAnalysis(docAnalysis);
+      const info = await analyzeSourceDocument(file, file.name);
+      setSource(info);
+
+      // Default target format recommendation
+      if (info.inputType === "pdf") {
+        setSettings((prev) => ({
+          ...prev,
+          targetFormat: "image/png",
+          pageRangeEnd: info.pageCount,
+        }));
+      } else {
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        setSettings((prev) => ({
+          ...prev,
+          targetFormat: ext === "png" ? "image/webp" : "image/png",
+        }));
+      }
+
       setState("ready");
     } catch (err) {
-      const optErr: PdfOptimizerError =
-        (err as PdfOptimizerError).message !== undefined
-          ? (err as PdfOptimizerError)
-          : { code: "CORRUPTED_PDF", message: "Failed to analyze PDF document." };
-      setError(optErr);
+      setError(
+        (err as ConverterError).message !== undefined
+          ? (err as ConverterError)
+          : { code: "CORRUPTED_FILE", message: "Failed to analyze document for conversion." }
+      );
       setState("error");
     }
   };
 
-  const handleUpdateSettings = (newSettings: Partial<OptimizationSettings>) => {
+  const handleUpdateSettings = (newSettings: Partial<ConversionSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
   };
 
-  const handleOptimize = async () => {
-    if (!file || !analysis) return;
+  const handleConvert = async () => {
+    if (!source) return;
 
-    setState("optimizing");
+    setState("converting");
     setError(null);
 
     try {
-      const res = await optimizePdf(file, settings);
-
-      // Register into Document Bus
-      const busDoc = documentBus.publishArtifact({
-        file: res.effectiveBlob,
-        name: res.effectiveFileName,
-        mimeType: "application/pdf",
-        sourceTool: "pdf-optimizer",
-        kind: "pdf",
-        previewUrl: res.effectiveObjectUrl,
-        metadata: {
-          pageCount: res.pageCount,
-          savingsPercentage: res.savingsPercentage,
-          reductionBytes: res.reductionBytes,
-          durationMs: res.durationMs,
-        },
-      });
-
-      res.busDocumentId = busDoc.id;
+      const res = await convertDocument(source, settings);
       setResult(res);
       setState("success");
     } catch (err) {
-      const optErr: PdfOptimizerError =
-        (err as PdfOptimizerError).message !== undefined
-          ? (err as PdfOptimizerError)
-          : { code: "OPTIMIZATION_FAILED", message: "PDF optimization failed in browser." };
-      setError(optErr);
+      setError(
+        (err as ConverterError).message !== undefined
+          ? (err as ConverterError)
+          : { code: "CONVERSION_FAILED", message: "Format conversion failed." }
+      );
       setState("ready");
     }
   };
 
   const handleReset = () => {
     cleanupUrls();
-    setFile(null);
-    setAnalysis(null);
+    setSource(null);
     setResult(null);
     setError(null);
     setState("empty");
@@ -159,16 +171,16 @@ function PdfOptimizerInner() {
   return (
     <div className="py-12 sm:py-16 pb-28">
       <Container size="xl">
-        {/* Navigation Breadcrumb */}
+        {/* Navigation Breadcrumbs */}
         <div className="flex items-center gap-2 text-xs font-mono text-text-muted mb-6">
           <Link href="/tools" className="hover:text-accent transition-colors">
             Tools
           </Link>
           <span>/</span>
-          <span className="text-text-primary">PDF Stream & Structure Optimizer</span>
+          <span className="text-text-primary">Universal Format Converter</span>
         </div>
 
-        {/* Header & Local Processing Banner */}
+        {/* Header & Local Processing Indicator */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-border-subtle mb-8">
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 mb-3">
@@ -176,16 +188,16 @@ function PdfOptimizerInner() {
                 PROCESSING: LOCAL
               </Badge>
               <span className="text-xs font-mono text-text-muted bg-surface-raised px-2 py-0.5 rounded border border-border-subtle">
-                Lossless-First Stream Engine
+                In-Memory Client Engine
               </span>
             </div>
 
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-text-primary leading-tight mb-2">
-              PDF Stream & Structure Optimizer
+              Universal Format Converter
             </h1>
 
             <p className="text-sm sm:text-base text-text-secondary leading-relaxed">
-              Optimize PDF document structure, pack cross-reference tables into binary Object Streams, prune historical edit revisions, and scrub metadata locally in your browser memory.
+              Convert between PNG, JPG, and WEBP image formats, or render PDF document pages into high-resolution images locally in your browser memory.
             </p>
           </div>
 
@@ -225,60 +237,66 @@ function PdfOptimizerInner() {
           </div>
         )}
 
-        {/* Analyzing Document State */}
+        {/* Analyzing State */}
         {state === "analyzing" && (
           <div className="max-w-xl mx-auto p-12 rounded-xl border border-border-default bg-surface-base text-center shadow-card">
             <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto mb-4" />
             <h3 className="text-base font-mono font-bold text-text-primary mb-1">
-              Analyzing PDF Document...
+              Analyzing Document...
             </h3>
             <p className="text-xs text-text-muted font-mono">
-              Parsing object tables, metadata streams, and page trees in client memory
+              Reading file headers and dimensions into client memory
             </p>
           </div>
         )}
 
-        {/* Ready / Optimization Settings State */}
-        {(state === "ready" || state === "optimizing") && analysis && (
+        {/* Ready / Conversion Settings State */}
+        {(state === "ready" || state === "converting") && source && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5">
               <DocumentSummary
-                analysis={analysis}
+                source={source}
                 onChangeFile={handleReset}
-                disabled={state === "optimizing"}
+                disabled={state === "converting"}
               />
             </div>
             <div className="lg:col-span-7">
-              <OptimizationControls
+              <ConversionControls
+                source={source}
                 settings={settings}
                 onUpdateSettings={handleUpdateSettings}
-                onOptimize={handleOptimize}
-                isOptimizing={state === "optimizing"}
+                onConvert={handleConvert}
+                isConverting={state === "converting"}
               />
             </div>
           </div>
         )}
 
         {/* Success / Result State */}
-        {state === "success" && analysis && result && (
+        {state === "success" && source && result && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-5">
-              <DocumentSummary analysis={analysis} onChangeFile={handleReset} />
+              <DocumentSummary source={source} onChangeFile={handleReset} />
             </div>
             <div className="lg:col-span-7">
-              <OptimizationResult result={result} onReset={handleReset} />
+              <ConversionResult result={result} onReset={handleReset} />
             </div>
           </div>
         )}
 
         {/* Error Fallback */}
-        {state === "error" && !analysis && (
+        {state === "error" && !source && (
           <div className="max-w-xl mx-auto text-center p-8 rounded-xl border border-border-default bg-surface-base">
             <p className="text-sm text-text-secondary mb-4">
-              Unable to proceed with PDF optimization.
+              Unable to proceed with format conversion.
             </p>
-            <Button variant="primary" size="md" onClick={handleReset} className="font-mono text-xs">
-              Select Another PDF
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleReset}
+              className="font-mono text-xs"
+            >
+              Select Another File
             </Button>
           </div>
         )}
@@ -287,16 +305,16 @@ function PdfOptimizerInner() {
   );
 }
 
-export function PdfOptimizer() {
+export function FormatConverter() {
   return (
     <Suspense
       fallback={
         <div className="py-24 text-center text-xs font-mono text-text-muted">
-          Loading optimizer...
+          Loading converter...
         </div>
       }
     >
-      <PdfOptimizerInner />
+      <FormatConverterInner />
     </Suspense>
   );
 }

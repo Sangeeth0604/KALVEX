@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { UploadZone } from "./upload-zone";
@@ -18,8 +19,12 @@ import {
   generatePdfFromPages,
   loadPdfDocument,
 } from "@/lib/tools/pdf-assembler/pdf-engine";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
-export function PdfAssembler() {
+function PdfAssemblerInner() {
+  const searchParams = useSearchParams();
+  const artifactParam = searchParams.get("artifact") || searchParams.get("docId");
+
   const [state, setState] = useState<WorkspaceState>("empty");
   const [documents, setDocuments] = useState<PdfDocumentItem[]>([]);
   const [pages, setPages] = useState<PdfPageItem[]>([]);
@@ -35,6 +40,42 @@ export function PdfAssembler() {
       }
     };
   }, [exportResult]);
+
+  // Handle incoming document from Document Bus via ?artifact=... or ?docId=...
+  useEffect(() => {
+    if (!artifactParam || documents.length > 0) return;
+
+    const timer = setTimeout(() => {
+      const art = documentBus.getArtifact(artifactParam);
+      if (art) {
+        setState("loading");
+        setStatusMessage("Loading transferred PDF document from Document Bus...");
+        const fileObj =
+          art.file instanceof File
+            ? art.file
+            : new File([art.file], art.name, { type: "application/pdf" });
+
+        loadPdfDocument(fileObj, 0)
+          .then((result) => {
+            setDocuments([result.document]);
+            setPages(result.pages);
+            setState("ready");
+            setStatusMessage("");
+          })
+          .catch((err) => {
+            setError(
+              (err as PdfError).message !== undefined
+                ? (err as PdfError)
+                : { code: "CORRUPTED_PDF", message: "Failed to load transferred PDF document." }
+            );
+            setState("empty");
+            setStatusMessage("");
+          });
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [artifactParam, documents.length]);
 
   const handleFilesSelected = async (files: File[]) => {
     setError(null);
@@ -104,26 +145,17 @@ export function PdfAssembler() {
     );
   };
 
-  const handleMovePageLeft = (pageId: string) => {
+  const handleMovePage = (pageId: string, direction: "left" | "right") => {
     setPages((prev) => {
-      const index = prev.findIndex((p) => p.id === pageId);
-      if (index <= 0) return prev;
-      const newPages = [...prev];
-      const temp = newPages[index - 1];
-      newPages[index - 1] = newPages[index];
-      newPages[index] = temp;
-      return newPages;
-    });
-  };
+      const idx = prev.findIndex((p) => p.id === pageId);
+      if (idx === -1) return prev;
+      const targetIdx = direction === "left" ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
 
-  const handleMovePageRight = (pageId: string) => {
-    setPages((prev) => {
-      const index = prev.findIndex((p) => p.id === pageId);
-      if (index < 0 || index >= prev.length - 1) return prev;
       const newPages = [...prev];
-      const temp = newPages[index + 1];
-      newPages[index + 1] = newPages[index];
-      newPages[index] = temp;
+      const temp = newPages[idx];
+      newPages[idx] = newPages[targetIdx];
+      newPages[targetIdx] = temp;
       return newPages;
     });
   };
@@ -132,7 +164,7 @@ export function PdfAssembler() {
     if (pages.length <= 1) {
       setError({
         code: "EMPTY_WORKSPACE",
-        message: "Cannot delete the only remaining page. Keep at least one page or use Start Over.",
+        message: "Cannot delete the last page. Reset the workspace if you wish to start over.",
       });
       return;
     }
@@ -163,6 +195,23 @@ export function PdfAssembler() {
         URL.revokeObjectURL(exportResult.objectUrl);
       }
       const res = await generatePdfFromPages(documents, pages, undefined, "assemble");
+
+      // Register into Document Bus
+      const busDoc = documentBus.publishArtifact({
+        file: res.blob,
+        name: res.fileName,
+        mimeType: "application/pdf",
+        sourceTool: "pdf-assembler",
+        kind: "pdf",
+        previewUrl: res.objectUrl,
+        metadata: {
+          pageCount: res.pageCount,
+          durationMs: res.durationMs,
+          operationType: "assemble",
+        },
+      });
+
+      res.busDocumentId = busDoc.id;
       setExportResult(res);
       setState("success");
       setStatusMessage("");
@@ -190,6 +239,23 @@ export function PdfAssembler() {
         URL.revokeObjectURL(exportResult.objectUrl);
       }
       const res = await generatePdfFromPages(documents, selectedPages, undefined, "extract");
+
+      // Register into Document Bus
+      const busDoc = documentBus.publishArtifact({
+        file: res.blob,
+        name: res.fileName,
+        mimeType: "application/pdf",
+        sourceTool: "pdf-assembler",
+        kind: "pdf",
+        previewUrl: res.objectUrl,
+        metadata: {
+          pageCount: res.pageCount,
+          durationMs: res.durationMs,
+          operationType: "extract",
+        },
+      });
+
+      res.busDocumentId = busDoc.id;
       setExportResult(res);
       setState("success");
       setStatusMessage("");
@@ -272,27 +338,17 @@ export function PdfAssembler() {
           </div>
         )}
 
-        {/* In-UI Processing Status */}
-        {state === "processing" && (
-          <div className="mb-8 p-6 rounded-xl bg-surface-base border border-accent/40 shadow-card flex flex-col items-center justify-center text-center">
-            <div className="h-8 w-8 rounded-full border-2 border-accent border-t-transparent animate-spin mb-3" />
-            <p className="text-sm font-mono font-bold text-text-primary">
-              {statusMessage || "Processing PDF in browser..."}
-            </p>
-            <p className="text-xs text-text-muted mt-1">
-              Executing client-side document assembly
-            </p>
-          </div>
-        )}
-
-        {/* Initial Empty Upload State */}
+        {/* Empty Upload State */}
         {state === "empty" && (
           <div className="max-w-3xl mx-auto">
             <UploadZone
               documents={documents}
               onFilesSelected={handleFilesSelected}
               onRemoveDocument={handleRemoveDocument}
-              onError={(err) => setError(err)}
+              onError={(err) => {
+                setError(err);
+                setState("empty");
+              }}
             />
           </div>
         )}
@@ -302,24 +358,34 @@ export function PdfAssembler() {
           <div className="max-w-xl mx-auto p-12 rounded-xl border border-border-default bg-surface-base text-center shadow-card">
             <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto mb-4" />
             <h3 className="text-base font-mono font-bold text-text-primary mb-1">
-              Loading PDF Document...
+              Loading PDF Workspace...
             </h3>
             <p className="text-xs text-text-muted font-mono">{statusMessage}</p>
           </div>
         )}
 
-        {/* Active Page Workspace */}
-        {(state === "ready" || state === "processing") && (
-          <div>
+        {/* Processing State */}
+        {state === "processing" && (
+          <div className="max-w-xl mx-auto p-12 rounded-xl border border-border-default bg-surface-base text-center shadow-card">
+            <div className="h-10 w-10 rounded-full border-2 border-accent border-t-transparent animate-spin mx-auto mb-4" />
+            <h3 className="text-base font-mono font-bold text-text-primary mb-1">
+              Processing PDF Pages...
+            </h3>
+            <p className="text-xs text-text-muted font-mono">{statusMessage}</p>
+          </div>
+        )}
+
+        {/* Ready / Workspace Active State */}
+        {state === "ready" && (
+          <>
             <UploadZone
               documents={documents}
               onFilesSelected={handleFilesSelected}
               onRemoveDocument={handleRemoveDocument}
               onError={(err) => setError(err)}
               compact
-              disabled={state === "processing"}
+              disabled={false}
             />
-
             <PdfWorkspace
               pages={pages}
               onToggleSelectPage={handleToggleSelectPage}
@@ -327,28 +393,40 @@ export function PdfAssembler() {
               onClearSelection={handleClearSelection}
               onRotatePage={handleRotatePage}
               onRotateSelected={handleRotateSelected}
-              onMovePageLeft={handleMovePageLeft}
-              onMovePageRight={handleMovePageRight}
+              onMovePageLeft={(id) => handleMovePage(id, "left")}
+              onMovePageRight={(id) => handleMovePage(id, "right")}
               onDeletePage={handleDeletePage}
               onDeleteSelected={handleDeleteSelected}
               onExportAll={handleExportAll}
               onExtractSelected={handleExtractSelected}
-              isProcessing={state === "processing"}
+              isProcessing={false}
             />
-          </div>
+          </>
         )}
 
-        {/* Success / Export Completed Panel */}
+        {/* Success / Export Result Panel */}
         {state === "success" && exportResult && (
-          <div>
-            <PdfExportPanel
-              result={exportResult}
-              onReset={handleReset}
-              onBackToWorkspace={() => setState("ready")}
-            />
-          </div>
+          <PdfExportPanel
+            result={exportResult}
+            onReset={handleReset}
+            onBackToWorkspace={() => setState("ready")}
+          />
         )}
       </Container>
     </div>
+  );
+}
+
+export function PdfAssembler() {
+  return (
+    <Suspense
+      fallback={
+        <div className="py-24 text-center text-xs font-mono text-text-muted">
+          Loading assembler...
+        </div>
+      }
+    >
+      <PdfAssemblerInner />
+    </Suspense>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { OcrResult } from "@/lib/tools/ocr-extractor/types";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
 interface OcrResultViewerProps {
   result: OcrResult;
@@ -10,8 +12,10 @@ interface OcrResultViewerProps {
 }
 
 export function OcrResultViewer({ result, onReset }: OcrResultViewerProps) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [selectedPageIndex, setSelectedPageIndex] = useState<number | "all">("all");
+  const [showSendMenu, setShowSendMenu] = useState(false);
 
   const hasMultiplePages = result.pages.length > 1;
 
@@ -46,6 +50,29 @@ export function OcrResultViewer({ result, onReset }: OcrResultViewerProps) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const handleOpenInAiWorkspace = () => {
+    if (!result.busDocumentId) return;
+    const art = documentBus.getArtifact(result.busDocumentId);
+    if (!art) return;
+    router.push(`/ai-workspace?artifact=${art.id}`);
+  };
+
+  const handleSendToTool = (targetSlug: string) => {
+    if (!result.busDocumentId) return;
+    const art = documentBus.getArtifact(result.busDocumentId);
+    if (!art) return;
+    const targetUrl =
+      targetSlug === "ai-workspace"
+        ? `/ai-workspace?artifact=${art.id}`
+        : `/tools/${targetSlug}?artifact=${art.id}`;
+    router.push(targetUrl);
+  };
+
+  const compatibleDestinations = documentBus.getCompatibleDestinations(
+    result.inputType === "pdf" ? "application/pdf" : "image/jpeg",
+    "ocr-extractor"
+  );
 
   return (
     <div className="rounded-xl border border-border-default bg-surface-base shadow-card p-6 flex flex-col justify-between">
@@ -150,54 +177,123 @@ export function OcrResultViewer({ result, onReset }: OcrResultViewerProps) {
         )}
       </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-border-subtle">
-        {hasText && (
-          <>
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={handleCopy}
-              className="flex-1 font-bold shadow-subtle font-mono text-xs"
-              leftIcon={
-                copied ? (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                ) : (
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                  </svg>
-                )
-              }
-            >
-              {copied ? "Copied to Clipboard!" : "Copy Extracted Text"}
-            </Button>
+      {/* Action Buttons & Document Bus Bridge */}
+      <div className="flex flex-col gap-3 pt-4 border-t border-border-subtle">
+        <div className="flex flex-wrap items-center gap-3">
+          {hasText && (
+            <>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handleCopy}
+                className="flex-1 font-bold shadow-subtle font-mono text-xs min-w-[160px]"
+                leftIcon={
+                  copied ? (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                  )
+                }
+              >
+                {copied ? "Copied to Clipboard!" : "Copy Extracted Text"}
+              </Button>
 
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleDownloadTxt}
-              className="font-mono text-xs"
-              leftIcon={
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-              }
-            >
-              Download .TXT
-            </Button>
-          </>
-        )}
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleDownloadTxt}
+                className="font-mono text-xs"
+                leftIcon={
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                }
+              >
+                Download .TXT
+              </Button>
 
-        <Button
-          variant="secondary"
-          size="lg"
-          onClick={onReset}
-          className="sm:w-auto font-mono text-xs text-text-secondary"
-        >
-          Extract Another File
-        </Button>
+              {/* Direct Open in AI Workspace button */}
+              {result.busDocumentId && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={handleOpenInAiWorkspace}
+                  className="font-mono text-xs text-accent border-border-accent/50 bg-accent-subtle/10"
+                  leftIcon={
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  }
+                >
+                  Open in AI Workspace
+                </Button>
+              )}
+
+              {/* Document Bus Send to menu */}
+              {compatibleDestinations.length > 0 && result.busDocumentId && (
+                <div className="relative">
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    onClick={() => setShowSendMenu((prev) => !prev)}
+                    className="font-mono text-xs"
+                    rightIcon={
+                      <svg
+                        className={`h-3 w-3 transition-transform ${
+                          showSendMenu ? "rotate-180" : ""
+                        }`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    }
+                  >
+                    Send to...
+                  </Button>
+
+                  {showSendMenu && (
+                    <div className="absolute bottom-full mb-2 right-0 w-56 rounded-xl bg-surface-raised border border-border-default shadow-xl p-1.5 z-20 space-y-1 animate-in fade-in zoom-in-95">
+                      <div className="px-2.5 py-1 text-[10px] font-mono text-text-muted uppercase border-b border-border-subtle mb-1">
+                        Send to KALVEX Tool
+                      </div>
+                      {compatibleDestinations.map((dest) => (
+                        <button
+                          key={dest.slug}
+                          type="button"
+                          onClick={() => handleSendToTool(dest.slug)}
+                          className="w-full text-left px-3 py-2 rounded-lg text-xs font-mono text-text-primary hover:bg-surface-hover hover:text-accent transition-colors flex items-center justify-between cursor-pointer"
+                        >
+                          <span>{dest.name}</span>
+                          <span className="text-[10px] text-accent">→</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={onReset}
+            className="sm:w-auto font-mono text-xs text-text-secondary"
+          >
+            Extract Another File
+          </Button>
+        </div>
       </div>
     </div>
   );

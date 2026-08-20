@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CompressionResult as ResultType } from "@/lib/tools/image-compressor/types";
 import { formatBytes } from "@/lib/tools/image-compressor/image-compressor";
+import { documentBus } from "@/lib/document-bus/document-bus";
 
 interface CompressionResultProps {
   result: ResultType;
@@ -11,6 +13,9 @@ interface CompressionResultProps {
 }
 
 export function CompressionResult({ result, onReset }: CompressionResultProps) {
+  const router = useRouter();
+  const [showSendMenu, setShowSendMenu] = useState(false);
+
   const isReduced = result.outcome === "reduced";
   const isEqual = result.outcome === "equal";
   const isLarger = result.outcome === "larger";
@@ -34,6 +39,22 @@ export function CompressionResult({ result, onReset }: CompressionResultProps) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  const compatibleDestinations = documentBus.getCompatibleDestinations(
+    result.outputMimeType,
+    "image-compressor"
+  );
+
+  const handleSendToTool = (targetSlug: string) => {
+    if (!result.busDocumentId) return;
+    const art = documentBus.getArtifact(result.busDocumentId);
+    if (!art) return;
+    const targetUrl =
+      targetSlug === "ai-workspace"
+        ? `/ai-workspace?artifact=${art.id}`
+        : `/tools/${targetSlug}?artifact=${art.id}`;
+    router.push(targetUrl);
   };
 
   return (
@@ -202,7 +223,7 @@ export function CompressionResult({ result, onReset }: CompressionResultProps) {
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Action Buttons & Document Bus Bridge */}
       <div className="flex flex-col gap-3 pt-4 border-t border-border-subtle">
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
@@ -234,12 +255,62 @@ export function CompressionResult({ result, onReset }: CompressionResultProps) {
               : "Download Image"}
           </Button>
 
+          {/* Document Bus "Send to..." Bridge */}
+          {compatibleDestinations.length > 0 && result.busDocumentId && (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={() => setShowSendMenu((prev) => !prev)}
+                className="w-full sm:w-auto font-mono text-xs text-accent border-border-accent/40"
+                rightIcon={
+                  <svg
+                    className={`h-3 w-3 transition-transform ${
+                      showSendMenu ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                }
+              >
+                Send to...
+              </Button>
+
+              {showSendMenu && (
+                <div className="absolute bottom-full mb-2 right-0 w-56 rounded-xl bg-surface-raised border border-border-default shadow-xl p-1.5 z-20 space-y-1 animate-in fade-in zoom-in-95">
+                  <div className="px-2.5 py-1 text-[10px] font-mono text-text-muted uppercase border-b border-border-subtle mb-1">
+                    Send to KALVEX Tool
+                  </div>
+                  {compatibleDestinations.map((dest) => (
+                    <button
+                      key={dest.slug}
+                      type="button"
+                      onClick={() => handleSendToTool(dest.slug)}
+                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-mono text-text-primary hover:bg-surface-hover hover:text-accent transition-colors flex items-center justify-between cursor-pointer"
+                    >
+                      <span>{dest.name}</span>
+                      <span className="text-[10px] text-accent">→</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <Button variant="secondary" size="lg" onClick={onReset} className="sm:w-auto">
             Compress Another
           </Button>
         </div>
 
-        {/* If larger, offer download of the converted candidate if user specifically desired the format conversion */}
+        {/* If larger, offer download of the converted candidate */}
         {isLarger && (
           <button
             type="button"

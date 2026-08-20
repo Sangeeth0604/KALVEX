@@ -42,6 +42,7 @@ export interface CompressionResult {
   effectiveFileName: string;
   fileName: string;
   durationMs: number;
+  busDocumentId?: string;
 }
 
 export type CompressionErrorCode =
