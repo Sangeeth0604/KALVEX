@@ -379,6 +379,12 @@ export async function runOcrExtraction(
       }
       const pagePreviewUrl = thumbCanvas.toDataURL("image/jpeg", 0.8);
 
+      // Release canvas pixel buffers from GPU/RAM
+      canvas.width = 0;
+      canvas.height = 0;
+      thumbCanvas.width = 0;
+      thumbCanvas.height = 0;
+
       pages.push({
         pageNumber: pageNum,
         text: pageText,

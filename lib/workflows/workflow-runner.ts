@@ -60,9 +60,27 @@ export async function executeWorkflow(
   }
 
   // 2. Sequential Step Execution
-  for (let i = 0; i < workflow.steps.length; i++) {
-    const step = workflow.steps[i];
+  const MAX_WORKFLOW_STEPS = 10;
+  const MAX_WORKFLOW_TIMEOUT_MS = 180000; // 3 minutes maximum
+  const stepsToExecute = workflow.steps.slice(0, MAX_WORKFLOW_STEPS);
+
+  for (let i = 0; i < stepsToExecute.length; i++) {
+    const step = stepsToExecute[i];
     const stepStartTime = performance.now();
+
+    // Check overall timeout
+    if (performance.now() - startTime > MAX_WORKFLOW_TIMEOUT_MS) {
+      const timeoutResult: WorkflowRunResult = {
+        workflowId: workflow.id,
+        status: "failed",
+        durationMs: Math.round(performance.now() - startTime),
+        finalArtifact: currentArtifact,
+        stepLogs,
+        errorMessage: "Workflow execution exceeded the maximum timeout (3 minutes).",
+        failedStepIndex: i + 1,
+      };
+      return timeoutResult;
+    }
 
     // Check cancellation
     if (signal?.aborted) {
@@ -81,7 +99,7 @@ export async function executeWorkflow(
       workflowId: workflow.id,
       workflowName: workflow.name,
       currentStepIndex: i + 1,
-      totalSteps: workflow.steps.length,
+      totalSteps: stepsToExecute.length,
       currentStepTitle: step.title,
       stageMessage: `Executing ${step.title}...`,
       status: "running",

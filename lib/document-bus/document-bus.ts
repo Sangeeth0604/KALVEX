@@ -34,12 +34,25 @@ export function resolveArtifactKind(mimeType: string, filename = ""): ArtifactKi
   return "document";
 }
 
+export function sanitizeFilename(name: string): string {
+  if (!name || typeof name !== "string") return "document";
+  // Strip control chars, directory traversal sequences, and leading/trailing whitespace
+  const cleaned = name
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[/\\]/g, "_")
+    .replace(/\.\.+/g, ".")
+    .trim();
+  return cleaned.slice(0, 150) || "document";
+}
+
+const MAX_BUS_ARTIFACTS = 20;
+
 class DocumentBusManager {
   private artifacts: Map<string, DocumentArtifact> = new Map();
   private listeners: Set<BusListener> = new Set();
 
   /**
-   * Publish a new document artifact into the Document Bus.
+   * Publish a new document artifact into the Document Bus with FIFO memory protection.
    */
   public publishArtifact(params: {
     name?: string;
@@ -52,8 +65,27 @@ class DocumentBusManager {
     textPayload?: string; // backwards compatibility
     metadata?: ArtifactMetadata;
   }): DocumentArtifact {
+    // 1. Enforce FIFO capacity limit (evict oldest artifacts to protect browser RAM)
+    if (this.artifacts.size >= MAX_BUS_ARTIFACTS) {
+      const keys = Array.from(this.artifacts.keys());
+      const toEvictCount = this.artifacts.size - MAX_BUS_ARTIFACTS + 1;
+      for (let i = 0; i < toEvictCount; i++) {
+        const evictKey = keys[i];
+        const oldArt = this.artifacts.get(evictKey);
+        if (oldArt?.previewUrl && oldArt.previewUrl.startsWith("blob:")) {
+          try {
+            URL.revokeObjectURL(oldArt.previewUrl);
+          } catch {
+            // Ignore revocation failure
+          }
+        }
+        this.artifacts.delete(evictKey);
+      }
+    }
+
     const id = `art-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const artifactName = params.name || params.filename || "document";
+    const rawName = params.name || params.filename || "document";
+    const artifactName = sanitizeFilename(rawName);
     const kind = params.kind || resolveArtifactKind(params.mimeType, artifactName);
 
     const mergedMetadata: ArtifactMetadata = {
@@ -67,9 +99,9 @@ class DocumentBusManager {
     const artifact: DocumentArtifact = {
       id,
       name: artifactName,
-      mimeType: params.mimeType,
+      mimeType: params.mimeType || "application/octet-stream",
       size: params.file.size,
-      sourceTool: params.sourceTool,
+      sourceTool: params.sourceTool.slice(0, 50),
       createdAt: Date.now(),
       kind,
       file: params.file,
@@ -128,9 +160,7 @@ class DocumentBusManager {
    * List all published artifacts in the current session.
    */
   public listArtifacts(): DocumentArtifact[] {
-    return Array.from(this.artifacts.values()).sort(
-      (a, b) => b.createdAt - a.createdAt
-    );
+    return Array.from(this.artifacts.values()).reverse();
   }
 
   public getDocuments(): DocumentArtifact[] {

@@ -260,10 +260,87 @@ function executeSimulatedOperation(
   };
 }
 
+// In-Memory Sliding-Window Rate Limiter for Public Beta Protection
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 20; // 20 requests/minute per client IP
+
+interface RateLimitRecord {
+  timestamps: number[];
+}
+
+const ipRateLimitMap = new Map<string, RateLimitRecord>();
+
+function isRateLimited(ip: string): { limited: boolean; remaining: number; retryAfterSeconds: number } {
+  const now = Date.now();
+  let record = ipRateLimitMap.get(ip);
+
+  if (!record) {
+    record = { timestamps: [] };
+    ipRateLimitMap.set(ip, record);
+  }
+
+  // Filter timestamps within sliding window
+  record.timestamps = record.timestamps.filter((ts) => now - ts < RATE_LIMIT_WINDOW_MS);
+
+  if (record.timestamps.length >= MAX_REQUESTS_PER_WINDOW) {
+    const oldest = record.timestamps[0];
+    const retryAfterSeconds = Math.max(1, Math.ceil((oldest + RATE_LIMIT_WINDOW_MS - now) / 1000));
+    return { limited: true, remaining: 0, retryAfterSeconds };
+  }
+
+  record.timestamps.push(now);
+
+  // Periodic pruning if map grows large (> 1000 IPs)
+  if (ipRateLimitMap.size > 1000) {
+    for (const [key, val] of ipRateLimitMap.entries()) {
+      val.timestamps = val.timestamps.filter((ts) => now - ts < RATE_LIMIT_WINDOW_MS);
+      if (val.timestamps.length === 0) {
+        ipRateLimitMap.delete(key);
+      }
+    }
+  }
+
+  return {
+    limited: false,
+    remaining: MAX_REQUESTS_PER_WINDOW - record.timestamps.length,
+    retryAfterSeconds: 0,
+  };
+}
+
+const SECURE_RESPONSE_HEADERS = {
+  "Cache-Control": "no-store, private",
+  "X-Content-Type-Options": "nosniff",
+};
+
 export async function POST(req: NextRequest) {
   const startTime = performance.now();
 
   try {
+    // 1. IP-based sliding-window rate limiting
+    const forwardedFor = req.headers.get("x-forwarded-for");
+    const clientIp = (forwardedFor ? forwardedFor.split(",")[0] : req.headers.get("x-real-ip")) || "127.0.0.1";
+
+    const rateStatus = isRateLimited(clientIp);
+    if (rateStatus.limited) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Rate limit exceeded. Please wait a moment before sending another AI request.",
+            retryable: true,
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            ...SECURE_RESPONSE_HEADERS,
+            "Retry-After": rateStatus.retryAfterSeconds.toString(),
+          },
+        }
+      );
+    }
+
+    // 2. Request body parsing
     let body: AiOperationRequest;
     try {
       body = (await req.json()) as AiOperationRequest;
@@ -276,7 +353,7 @@ export async function POST(req: NextRequest) {
             retryable: false,
           },
         },
-        { status: 400 }
+        { status: 400, headers: SECURE_RESPONSE_HEADERS }
       );
     }
 
@@ -289,7 +366,7 @@ export async function POST(req: NextRequest) {
             retryable: false,
           },
         },
-        { status: 400 }
+        { status: 400, headers: SECURE_RESPONSE_HEADERS }
       );
     }
 
@@ -510,7 +587,7 @@ export async function POST(req: NextRequest) {
         },
       };
 
-      return NextResponse.json(resultPayload);
+      return NextResponse.json(resultPayload, { headers: SECURE_RESPONSE_HEADERS });
     }
 
     // =========================================================================
@@ -529,7 +606,7 @@ export async function POST(req: NextRequest) {
             retryable: false,
           },
         },
-        { status: 503 }
+        { status: 503, headers: SECURE_RESPONSE_HEADERS }
       );
     }
 
@@ -561,7 +638,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    return NextResponse.json(resultPayload);
+    return NextResponse.json(resultPayload, { headers: SECURE_RESPONSE_HEADERS });
   } catch {
     console.error("AI execution failed unexpectedly");
     return NextResponse.json(
@@ -572,7 +649,7 @@ export async function POST(req: NextRequest) {
           retryable: true,
         },
       },
-      { status: 500 }
+      { status: 500, headers: SECURE_RESPONSE_HEADERS }
     );
   }
 }
