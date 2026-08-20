@@ -22,6 +22,7 @@ import {
   convertDocument,
 } from "@/lib/tools/format-converter/format-converter-engine";
 import { documentBus } from "@/lib/document-bus/document-bus";
+import { historyManager } from "@/lib/history";
 
 function FormatConverterInner() {
   const searchParams = useSearchParams();
@@ -148,6 +149,28 @@ function FormatConverterInner() {
 
     try {
       const res = await convertDocument(source, settings);
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "format-converter",
+        operationType: "convert",
+        inputFilename: source.name,
+        inputKind: source.inputType === "pdf" ? "pdf" : "image",
+        inputSize: source.size,
+        outputFilename: res.pages[0]?.fileName || "converted-output",
+        outputKind: "image",
+        outputSize: res.totalOutputSize,
+        status: "success",
+        outcome: `Converted to ${settings.targetFormat} (${res.pages.length} ${res.pages.length === 1 ? "Image" : "Images"})`,
+        durationMs: res.durationMs,
+        busArtifactId: res.busDocumentId,
+        metadata: {
+          formatFrom: source.inputType === "pdf" ? "PDF" : source.mimeType,
+          formatTo: settings.targetFormat,
+          pageCount: res.pages.length,
+        },
+      });
+
       setResult(res);
       setState("success");
     } catch (err) {

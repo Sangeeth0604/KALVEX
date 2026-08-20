@@ -23,6 +23,7 @@ import {
   PdfOptimizerError,
 } from "@/lib/tools/pdf-optimizer/types";
 import { documentBus } from "@/lib/document-bus/document-bus";
+import { historyManager } from "@/lib/history";
 
 function PdfOptimizerInner() {
   const searchParams = useSearchParams();
@@ -135,6 +136,33 @@ function PdfOptimizerInner() {
       });
 
       res.busDocumentId = busDoc.id;
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "pdf-optimizer",
+        operationType: "optimize",
+        inputFilename: analysis.name,
+        inputKind: "pdf",
+        inputSize: analysis.size,
+        outputFilename: res.effectiveFileName,
+        outputKind: "pdf",
+        outputSize: res.effectiveBlob.size,
+        status: "success",
+        outcome:
+          res.outcome === "reduced"
+            ? `Reduced (-${res.savingsPercentage.toFixed(1)}%)`
+            : res.outcome === "equal"
+            ? "No Reduction"
+            : "Output Larger",
+        savingsPercentage: res.savingsPercentage,
+        reductionBytes: res.reductionBytes,
+        durationMs: res.durationMs,
+        busArtifactId: busDoc.id,
+        metadata: {
+          pageCount: res.pageCount,
+        },
+      });
+
       setResult(res);
       setState("success");
     } catch (err) {

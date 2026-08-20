@@ -20,6 +20,7 @@ import {
   loadPdfDocument,
 } from "@/lib/tools/pdf-assembler/pdf-engine";
 import { documentBus } from "@/lib/document-bus/document-bus";
+import { historyManager } from "@/lib/history";
 
 function PdfAssemblerInner() {
   const searchParams = useSearchParams();
@@ -212,6 +213,26 @@ function PdfAssemblerInner() {
       });
 
       res.busDocumentId = busDoc.id;
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "pdf-assembler",
+        operationType: "assemble",
+        inputFilename: documents.map((d) => d.name).join(", "),
+        inputKind: "pdf",
+        inputSize: documents.reduce((acc, d) => acc + d.size, 0),
+        outputFilename: res.fileName,
+        outputKind: "pdf",
+        outputSize: res.fileSize,
+        status: "success",
+        outcome: `Assembled ${res.pageCount} Pages (${documents.length} Files)`,
+        durationMs: res.durationMs,
+        busArtifactId: busDoc.id,
+        metadata: {
+          pageCount: res.pageCount,
+        },
+      });
+
       setExportResult(res);
       setState("success");
       setStatusMessage("");
@@ -256,6 +277,26 @@ function PdfAssemblerInner() {
       });
 
       res.busDocumentId = busDoc.id;
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "pdf-assembler",
+        operationType: "split",
+        inputFilename: documents.map((d) => d.name).join(", "),
+        inputKind: "pdf",
+        inputSize: documents.reduce((acc, d) => acc + d.size, 0),
+        outputFilename: res.fileName,
+        outputKind: "pdf",
+        outputSize: res.fileSize,
+        status: "success",
+        outcome: `Extracted ${res.pageCount} Selected Pages`,
+        durationMs: res.durationMs,
+        busArtifactId: busDoc.id,
+        metadata: {
+          pageCount: res.pageCount,
+        },
+      });
+
       setExportResult(res);
       setState("success");
       setStatusMessage("");

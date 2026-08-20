@@ -22,6 +22,7 @@ import {
   terminateOcrWorker,
 } from "@/lib/tools/ocr-extractor/ocr-engine";
 import { documentBus } from "@/lib/document-bus/document-bus";
+import { historyManager } from "@/lib/history";
 
 function OcrExtractorInner() {
   const searchParams = useSearchParams();
@@ -82,6 +83,28 @@ function OcrExtractorInner() {
       });
 
       ocrRes.busDocumentId = busDoc.id;
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "ocr-extractor",
+        operationType: "ocr",
+        inputFilename: info.name,
+        inputKind: info.inputType === "pdf" ? "pdf" : "image",
+        inputSize: info.size,
+        outputFilename: `${info.name.replace(/\.[^/.]+$/, "")}-extracted.txt`,
+        outputKind: "text",
+        outputSize: ocrRes.fullText.length,
+        status: "success",
+        outcome: `Extracted ${ocrRes.totalWords.toLocaleString()} Words (${ocrRes.totalPages} ${ocrRes.totalPages === 1 ? "Page" : "Pages"})`,
+        durationMs: ocrRes.durationMs,
+        busArtifactId: busDoc.id,
+        metadata: {
+          wordCount: ocrRes.totalWords,
+          pageCount: ocrRes.totalPages,
+          confidence: ocrRes.averageConfidence,
+        },
+      });
+
       setResult(ocrRes);
       setState("success");
     } catch (err) {

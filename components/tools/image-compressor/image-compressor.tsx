@@ -22,6 +22,7 @@ import {
   readImageMetadata,
 } from "@/lib/tools/image-compressor/image-compressor";
 import { documentBus } from "@/lib/document-bus/document-bus";
+import { historyManager } from "@/lib/history";
 
 function ImageCompressorInner() {
   const searchParams = useSearchParams();
@@ -146,6 +147,30 @@ function ImageCompressorInner() {
       });
 
       res.busDocumentId = busDoc.id;
+
+      // Record into History
+      historyManager.recordEntry({
+        sourceTool: "image-compressor",
+        operationType: "compress",
+        inputFilename: metadata.name,
+        inputKind: "image",
+        inputSize: metadata.size,
+        outputFilename: res.effectiveFileName,
+        outputKind: "image",
+        outputSize: res.effectiveBlob.size,
+        status: "success",
+        outcome:
+          res.outcome === "reduced"
+            ? `Reduced (-${res.savingsPercentage.toFixed(1)}%)`
+            : res.outcome === "equal"
+            ? "No Reduction"
+            : "Output Larger",
+        savingsPercentage: res.savingsPercentage,
+        reductionBytes: res.reductionBytes,
+        durationMs: res.durationMs,
+        busArtifactId: busDoc.id,
+      });
+
       setResult(res);
       setState("success");
     } catch (err) {
