@@ -160,7 +160,9 @@ export function HistoryCard({ entry, onRemove }: HistoryCardProps) {
           {isLiveInBus && (
             <Link href={getOpenHref()}>
               <Button variant="primary" size="sm" className="text-xs font-mono font-bold py-1 h-7">
-                Open Result
+                {entry.sourceTool === "ai-workspace" || entry.operationType.startsWith("ai_") || entry.outputKind === "text"
+                  ? "Open in AI Workspace ➔"
+                  : "Continue in Tool ➔"}
               </Button>
             </Link>
           )}

@@ -84,6 +84,26 @@ export function WorkflowsContainer() {
           </Button>
         </div>
 
+        {/* Educational Callout Banner */}
+        <div className="p-4 rounded-xl bg-surface-raised/70 border border-border-default flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-start gap-2.5 text-text-secondary">
+            <span className="text-accent text-base mt-0.5">💡</span>
+            <div>
+              <strong className="text-text-primary">What problem does a Saved Workflow solve?</strong>
+              <p className="text-text-muted mt-0.5 text-[11px] font-sans leading-relaxed">
+                Instead of manually passing files between 3 or 4 separate tools, a workflow automatically executes a multi-step pipeline (e.g. Scanned Document → WASM OCR → AI Entity Extraction) in browser memory in a single run.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCreatingWorkflow(true)}
+            className="px-3 py-1.5 rounded-lg bg-surface-base border border-border-subtle hover:border-border-accent hover:text-accent text-text-primary text-[11px] font-semibold shrink-0 transition-colors cursor-pointer"
+          >
+            Build Pipeline ➔
+          </button>
+        </div>
+
         {/* Search & Category Filter Tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
           {/* Category Tabs */}

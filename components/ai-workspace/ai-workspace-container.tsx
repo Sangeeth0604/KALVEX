@@ -110,7 +110,47 @@ function AiWorkspaceInner() {
     [context]
   );
 
-  // 3. Clear Session & Clean Up Memory
+  // 3. Direct File Upload Ingestion
+  const handleDirectUpload = async (file: File) => {
+    try {
+      setErrorMessage(null);
+      setPrivacyLevel("LOCAL_ONLY");
+
+      // Infer artifact kind
+      let kind: "pdf" | "image" | "text" = "text";
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        kind = "pdf";
+      } else if (file.type.startsWith("image/")) {
+        kind = "image";
+      }
+
+      const published = documentBus.publishArtifact({
+        name: file.name,
+        mimeType: file.type || "application/octet-stream",
+        sourceTool: "direct-upload",
+        kind,
+        file,
+      });
+
+      setArtifact(published);
+      setNotFoundId(null);
+
+      const builtContext = await buildDocumentContext(
+        published.file,
+        published.name,
+        published.mimeType,
+        published.id
+      );
+
+      setContext(builtContext);
+      setSelectedSectionId("block-1");
+    } catch (err) {
+      console.error("Direct upload context preparation failed:", err);
+      setErrorMessage(err instanceof Error ? err.message : "Failed to extract document context.");
+    }
+  };
+
+  // 4. Clear Session & Clean Up Memory
   const handleClearSession = () => {
     if (artifact) {
       documentBus.removeArtifact(artifact.id);
@@ -128,25 +168,28 @@ function AiWorkspaceInner() {
     setSelectedSectionId("block-1");
   };
 
-  const handleSelectCitation = (page: number) => {
+  const handleSelectCitation = (_page: number, excerpt: string) => {
     if (!context) return;
-    // Find matching block in context
-    const idx = context.pages.findIndex((p) => p.pageNumber === page);
+    const lower = excerpt.toLowerCase();
+    const idx = context.extractedText
+      .split(/\n\n+/)
+      .findIndex((p) => p.toLowerCase().includes(lower));
     if (idx >= 0) {
       setSelectedSectionId(`block-${idx + 1}`);
     }
   };
 
   return (
-    <div className="pb-16">
+    <div className="py-8 pb-20">
       <Container size="xl">
+        {/* Top Header Bar with Live Privacy Badges & Status */}
         <WorkspaceHeader
+          privacyLevel={privacyLevel}
           artifact={artifact}
           context={context}
-          privacyLevel={privacyLevel}
           notFoundId={notFoundId}
           onClearSession={handleClearSession}
-          onOpenDocument={context ? handleOpenDocument : undefined}
+          onOpenDocument={handleOpenDocument}
         />
 
         {/* Global Error Banner */}
@@ -175,6 +218,7 @@ function AiWorkspaceInner() {
               context={context}
               selectedSectionId={selectedSectionId}
               onSelectSection={setSelectedSectionId}
+              onUploadFile={handleDirectUpload}
             />
           </div>
 

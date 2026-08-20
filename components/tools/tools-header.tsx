@@ -19,7 +19,7 @@ export function ToolsHeader({
   return (
     <div className="pt-10 pb-8 border-b border-border-subtle mb-8">
       {/* Title Block */}
-      <div className="max-w-3xl mb-8">
+      <div className="max-w-3xl mb-6">
         <Badge variant="accent" size="md" dot className="mb-4">
           Tools Directory
         </Badge>
@@ -30,6 +30,30 @@ export function ToolsHeader({
           Discover client-side and zero-retention tools across conversion, compression, creation,
           and document understanding.
         </p>
+      </div>
+
+      {/* Connected Platform Discovery Banner */}
+      <div className="p-3.5 mb-8 rounded-xl bg-surface-raised/80 border border-border-default flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+        <div className="flex items-center gap-2 text-text-secondary">
+          <span className="text-accent text-sm">⚡</span>
+          <span>
+            <strong className="text-text-primary">Connected Document Flow:</strong> Move outputs between tools or analyze with AI without re-uploading.
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <a
+            href="/workflows"
+            className="px-2.5 py-1 rounded-md bg-surface-base border border-border-subtle hover:border-border-accent hover:text-accent text-text-primary transition-colors text-[11px] font-semibold"
+          >
+            Saved Workflows ➔
+          </a>
+          <a
+            href="/ai-workspace"
+            className="px-2.5 py-1 rounded-md bg-accent-subtle text-accent border border-border-accent-subtle hover:bg-accent-subtle/80 transition-colors text-[11px] font-semibold"
+          >
+            AI Workspace ➔
+          </a>
+        </div>
       </div>
 
       {/* Search Input Bar */}

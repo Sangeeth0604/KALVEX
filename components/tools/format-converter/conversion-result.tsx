@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConversionResult as ResultType } from "@/lib/tools/format-converter/types";
@@ -14,7 +14,6 @@ interface ConversionResultProps {
 
 export function ConversionResult({ result, onReset }: ConversionResultProps) {
   const router = useRouter();
-  const [showSendMenu, setShowSendMenu] = useState(false);
 
   const hasMultiplePages = result.pages.length > 1;
   const isReduced = result.sizeDifferenceBytes > 0;
@@ -166,8 +165,39 @@ export function ConversionResult({ result, onReset }: ConversionResultProps) {
         )}
       </div>
 
-      {/* Action Buttons & Document Bus Bridge */}
-      <div className="flex flex-col gap-3 pt-4 border-t border-border-subtle">
+      {/* Action Hierarchy: Next Operations & Download */}
+      <div className="flex flex-col gap-4 pt-4 border-t border-border-subtle">
+        {/* Next Operation Bar */}
+        {compatibleDestinations.length > 0 && result.busDocumentId && (
+          <div className="p-3 rounded-lg bg-surface-raised/60 border border-border-subtle space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-mono">
+              <span className="text-text-muted uppercase font-bold flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                Next Operation (In-Memory Handoff):
+              </span>
+              <span className="text-accent text-[10px]">No re-upload needed</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {compatibleDestinations.map((dest) => (
+                <button
+                  key={dest.slug}
+                  type="button"
+                  onClick={() => handleSendToTool(dest.slug)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-subtle ${
+                    dest.slug === "ai-workspace"
+                      ? "bg-accent-subtle/40 border-border-accent text-accent font-bold hover:bg-accent-subtle"
+                      : "bg-surface-base border-border-default hover:border-border-accent hover:text-accent text-text-primary"
+                  }`}
+                >
+                  <span>{dest.slug === "ai-workspace" ? "✨ Open in AI Workspace" : dest.name}</span>
+                  <span className="text-accent text-[10px]">➔</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Primary Download and Secondary Reset */}
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             variant="primary"
@@ -200,59 +230,9 @@ export function ConversionResult({ result, onReset }: ConversionResultProps) {
             }
           >
             {hasMultiplePages
-              ? `Download All ${result.pages.length} Images`
+              ? `Download All ${result.pages.length} Images (ZIP)`
               : `Download ${result.targetExtension.toUpperCase()} File`}
           </Button>
-
-          {/* Document Bus "Send to..." Bridge Button */}
-          {compatibleDestinations.length > 0 && result.busDocumentId && (
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="lg"
-                onClick={() => setShowSendMenu((prev) => !prev)}
-                className="w-full sm:w-auto font-mono text-xs text-accent border-border-accent/40"
-                rightIcon={
-                  <svg
-                    className={`h-3 w-3 transition-transform ${
-                      showSendMenu ? "rotate-180" : ""
-                    }`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                }
-              >
-                Send to...
-              </Button>
-
-              {showSendMenu && (
-                <div className="absolute bottom-full mb-2 right-0 w-56 rounded-xl bg-surface-raised border border-border-default shadow-xl p-1.5 z-20 space-y-1 animate-in fade-in zoom-in-95">
-                  <div className="px-2.5 py-1 text-[10px] font-mono text-text-muted uppercase border-b border-border-subtle mb-1">
-                    Send to KALVEX Tool
-                  </div>
-                  {compatibleDestinations.map((dest) => (
-                    <button
-                      key={dest.slug}
-                      type="button"
-                      onClick={() => handleSendToTool(dest.slug)}
-                      className="w-full text-left px-3 py-2 rounded-lg text-xs font-mono text-text-primary hover:bg-surface-hover hover:text-accent transition-colors flex items-center justify-between cursor-pointer"
-                    >
-                      <span>{dest.name}</span>
-                      <span className="text-[10px] text-accent">→</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           <Button
             variant="secondary"
