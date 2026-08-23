@@ -7,6 +7,7 @@ import { Container } from "@/components/ui/container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  OfficeConversionProgress,
   OfficeConversionResult,
   OfficeConversionSettings,
   OfficeTargetFormat,
@@ -25,11 +26,14 @@ function PdfToOfficeInner() {
   const [state, setState] = useState<"empty" | "ready" | "converting" | "success" | "error">("empty");
   const [result, setResult] = useState<OfficeConversionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<OfficeConversionProgress | null>(null);
+  const [previewTab, setPreviewTab] = useState<"summary" | "tables">("summary");
 
   const handleFileSelect = useCallback((f: File) => {
     setFile(f);
     setResult(null);
     setError(null);
+    setProgress(null);
     setState("ready");
   }, []);
 
@@ -52,14 +56,39 @@ function PdfToOfficeInner() {
     if (!file) return;
     setState("converting");
     setError(null);
+    setProgress({ stage: "Initializing conversion pipeline...", percent: 5 });
 
     try {
       const settings: OfficeConversionSettings = {
         targetFormat,
-        preservePageBreaks: true,
+        includeTables: true,
+        preserveLayout: true,
+        enableOcrFallback: true,
       };
 
-      const res = await convertPdfToOffice(file, settings);
+      const res = await convertPdfToOffice(file, settings, (p) => {
+        setProgress(p);
+      });
+
+      // Developer diagnostic log with exact binary properties
+      const firstBytesBuf = await res.outputBlob.slice(0, 8).arrayBuffer();
+      const hexBytes = Array.from(new Uint8Array(firstBytesBuf))
+        .map((b) => b.toString(16).padStart(2, "0").toUpperCase())
+        .join(" ");
+
+      console.log("=== KALVEX OFFICE CONVERSION DIAGNOSTICS ===", {
+        outputName: res.outputName,
+        mimeType: res.outputBlob.type,
+        blobSize: `${res.outputSize} bytes (${(res.outputSize / 1024).toFixed(1)} KB)`,
+        first8BytesHex: hexBytes,
+        targetFormat: res.targetFormat,
+        pageCount: res.pageCount,
+        wordCount: res.wordCount,
+        tablesCount: res.tablesCount,
+        classification: res.classification,
+        ocrPagesCount: res.ocrPagesCount,
+        validation: hexBytes.startsWith("50 4B") ? "VALID ZIP / OPENXML (50 4B)" : "INVALID HEADER",
+      });
 
       // Register into Document Bus
       const busDoc = documentBus.publishArtifact({
@@ -71,7 +100,8 @@ function PdfToOfficeInner() {
         metadata: {
           format: res.targetFormat,
           wordCount: res.wordCount,
-          tableCount: res.tableCount,
+          tablesCount: res.tablesCount,
+          classification: res.classification,
           durationMs: res.durationMs,
         },
       });
@@ -89,7 +119,7 @@ function PdfToOfficeInner() {
         outputKind: "text",
         outputSize: res.outputSize,
         status: "success",
-        outcome: `Converted to ${res.targetFormat.toUpperCase()} (${res.pageCount} Pages, ${res.wordCount.toLocaleString()} Words)`,
+        outcome: `Converted to ${res.targetFormat.toUpperCase()} (${res.pageCount} ${res.pageCount === 1 ? "Page" : "Pages"}, ${res.wordCount.toLocaleString()} Words, ${res.tablesCount} Tables)`,
         durationMs: res.durationMs,
         busArtifactId: busDoc.id,
       });
@@ -98,7 +128,11 @@ function PdfToOfficeInner() {
       setState("success");
     } catch (err) {
       console.error("PDF to Office conversion failed:", err);
-      setError(err instanceof Error ? err.message : "Failed to convert PDF.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Document generation failed validation. Your original PDF was not modified. Please try again."
+      );
       setState("error");
     }
   };
@@ -132,13 +166,13 @@ function PdfToOfficeInner() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="accent">Convert</Badge>
-              <Badge variant="outline">Client Engine</Badge>
+              <Badge variant="outline">OpenXML + OCR Engine</Badge>
             </div>
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-text-primary">
               PDF to Office Formats
             </h1>
             <p className="text-sm text-text-secondary mt-2 max-w-2xl">
-              Transform PDF documents into editable Word (.docx) documents and Excel (.xlsx) spreadsheets with layout and table retention.
+              Transform native, scanned, or mixed PDFs into genuine, editable Word (.docx) documents and Excel (.xlsx) spreadsheets with client-side table reconstruction and automatic OCR fallback.
             </p>
           </div>
         </div>
@@ -153,7 +187,7 @@ function PdfToOfficeInner() {
               </div>
               <h3 className="text-lg font-bold text-text-primary font-mono">Upload PDF to Convert</h3>
               <p className="text-xs text-text-muted font-mono">
-                Select a PDF document to transform into an editable Word (.docx) or Excel (.xlsx) file.
+                Select any text, scanned, or multi-page PDF document to convert into an editable Word (.docx) or Excel (.xlsx) file.
               </p>
               <input
                 type="file"
@@ -183,7 +217,7 @@ function PdfToOfficeInner() {
                 Target Office Format
               </h3>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
                   type="button"
                   onClick={() => setTargetFormat("docx")}
@@ -193,8 +227,15 @@ function PdfToOfficeInner() {
                       : "border-border-default bg-surface-raised/40 hover:border-border-accent"
                   }`}
                 >
-                  <span className="text-sm font-bold font-mono text-text-primary block">Word Document (.DOCX)</span>
-                  <span className="text-xs text-text-muted mt-1 block">Best for text documents, reports, and contracts.</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-bold font-mono text-text-primary">Word Document (.DOCX)</span>
+                    <Badge variant={targetFormat === "docx" ? "accent" : "outline"} className="text-[10px]">
+                      OpenXML
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-text-muted block">
+                    Best for text documents, reports, contracts, headings, and formatted paragraphs.
+                  </span>
                 </button>
 
                 <button
@@ -206,8 +247,15 @@ function PdfToOfficeInner() {
                       : "border-border-default bg-surface-raised/40 hover:border-border-accent"
                   }`}
                 >
-                  <span className="text-sm font-bold font-mono text-text-primary block">Excel Spreadsheet (.XLSX)</span>
-                  <span className="text-xs text-text-muted mt-1 block">Best for invoices, statements, and tabular data.</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-bold font-mono text-text-primary">Excel Spreadsheet (.XLSX)</span>
+                    <Badge variant={targetFormat === "xlsx" ? "accent" : "outline"} className="text-[10px]">
+                      SpreadsheetML
+                    </Badge>
+                  </div>
+                  <span className="text-xs text-text-muted block">
+                    Best for statements, financial invoices, receipts, and grid tables.
+                  </span>
                 </button>
               </div>
 
@@ -232,34 +280,66 @@ function PdfToOfficeInner() {
         )}
 
         {state === "converting" && (
-          <div className="rounded-xl border border-border-default bg-surface-base p-12 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent mb-4" />
-            <p className="text-sm font-mono font-bold text-text-primary">Extracting PDF structures and building {targetFormat.toUpperCase()} document...</p>
+          <div className="rounded-xl border border-border-default bg-surface-base p-12 text-center space-y-4 font-mono">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent" />
+            <p className="text-sm font-bold text-text-primary">
+              {progress?.stage || "Processing PDF and compiling Office package..."}
+            </p>
+            {progress?.percent !== undefined && (
+              <div className="max-w-xs mx-auto space-y-1">
+                <div className="w-full h-2 rounded-full bg-surface-raised overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-300"
+                    style={{ width: `${progress.percent}%` }}
+                  />
+                </div>
+                <span className="text-xs text-text-muted">{progress.percent}%</span>
+              </div>
+            )}
           </div>
         )}
 
         {state === "error" && (
-          <div className="rounded-xl border border-border-danger bg-surface-base p-8 text-center space-y-4">
-            <p className="text-sm font-mono text-text-danger font-bold">{error || "Conversion failed."}</p>
-            <Button variant="secondary" onClick={() => setState("ready")} className="font-mono text-xs">
-              Try Again
-            </Button>
+          <div className="rounded-xl border border-border-danger bg-surface-base p-8 text-center space-y-4 font-mono">
+            <div className="w-10 h-10 rounded-full bg-red-500/10 text-text-danger flex items-center justify-center mx-auto text-lg font-bold">
+              ✕
+            </div>
+            <h3 className="text-base font-bold text-text-primary">Conversion Validation Failed</h3>
+            <p className="text-xs text-text-muted max-w-md mx-auto">
+              {error || "Document generation failed validation. Your original PDF was not modified. Please try again."}
+            </p>
+            <div className="flex justify-center gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setState("ready")} className="text-xs">
+                Try Again
+              </Button>
+            </div>
           </div>
         )}
 
         {state === "success" && result && (
           <div className="rounded-xl border border-border-default bg-surface-base p-6 shadow-card space-y-6">
+            {/* Header & Download Bar */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border-subtle font-mono">
               <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs text-emerald-400 font-bold flex items-center gap-1">
+                    ✓ Conversion complete — Office package validated
+                  </span>
+                  <Badge variant="outline" className="text-[10px] uppercase">
+                    {result.classification === "native" ? "Native Text" : result.classification === "scanned" ? "Scanned (OCR)" : "Mixed Content"}
+                  </Badge>
+                </div>
                 <h3 className="text-sm font-bold text-text-primary uppercase">{result.outputName}</h3>
                 <p className="text-xs text-text-muted mt-0.5">
-                  Converted in {result.durationMs} ms • {result.pageCount} Pages • {result.wordCount.toLocaleString()} Words
+                  Converted in {result.durationMs} ms • {result.pageCount} {result.pageCount === 1 ? "Page" : "Pages"} • {result.wordCount.toLocaleString()} Words
+                  {result.tablesCount > 0 ? ` • ${result.tablesCount} ${result.tablesCount === 1 ? "Table" : "Tables"}` : ""}
+                  {result.ocrPagesCount > 0 ? ` • (${result.ocrPagesCount} OCR Pages)` : ""}
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 <Button variant="primary" onClick={handleDownload} className="font-mono text-xs font-bold">
-                  Download {result.targetFormat.toUpperCase()} File
+                  Download {result.targetFormat.toUpperCase()}
                 </Button>
                 {result.busDocumentId && (
                   <Button
@@ -267,28 +347,91 @@ function PdfToOfficeInner() {
                     onClick={() => router.push(`/ai-workspace?artifact=${result.busDocumentId}`)}
                     className="font-mono text-xs font-bold"
                   >
-                    ✨ Open in AI Workspace ➔
+                    ✨ AI Workspace ➔
                   </Button>
                 )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono">
+            {/* Metrics Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
               <div className="p-3 rounded-lg bg-surface-raised border border-border-subtle text-center">
                 <span className="text-[10px] text-text-muted uppercase block mb-1">Target Format</span>
                 <span className="text-base font-bold text-accent uppercase">.{result.targetFormat}</span>
               </div>
               <div className="p-3 rounded-lg bg-surface-raised border border-border-subtle text-center">
-                <span className="text-[10px] text-text-muted uppercase block mb-1">Extracted Tables</span>
-                <span className="text-base font-bold text-text-primary">{result.tableCount}</span>
+                <span className="text-[10px] text-text-muted uppercase block mb-1">Extracted Words</span>
+                <span className="text-base font-bold text-text-primary">{result.wordCount.toLocaleString()}</span>
               </div>
               <div className="p-3 rounded-lg bg-surface-raised border border-border-subtle text-center">
-                <span className="text-[10px] text-text-muted uppercase block mb-1">Output Size</span>
+                <span className="text-[10px] text-text-muted uppercase block mb-1">Detected Tables</span>
+                <span className="text-base font-bold text-text-primary">{result.tablesCount}</span>
+              </div>
+              <div className="p-3 rounded-lg bg-surface-raised border border-border-subtle text-center">
+                <span className="text-[10px] text-text-muted uppercase block mb-1">Package Size</span>
                 <span className="text-base font-bold text-text-primary">{(result.outputSize / 1024).toFixed(1)} KB</span>
               </div>
             </div>
 
-            <div className="flex justify-end">
+            {/* Detected Tables Preview */}
+            {result.tablesCount > 0 && (
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center justify-between border-b border-border-subtle pb-2">
+                  <h4 className="text-xs font-mono font-bold text-text-primary uppercase">
+                    Extracted Tables ({result.tablesCount})
+                  </h4>
+                  <div className="flex gap-2 font-mono text-xs">
+                    <button
+                      onClick={() => setPreviewTab("summary")}
+                      className={`px-2 py-1 rounded ${previewTab === "summary" ? "bg-surface-raised text-accent font-bold" : "text-text-muted"}`}
+                    >
+                      Summary
+                    </button>
+                    <button
+                      onClick={() => setPreviewTab("tables")}
+                      className={`px-2 py-1 rounded ${previewTab === "tables" ? "bg-surface-raised text-accent font-bold" : "text-text-muted"}`}
+                    >
+                      Table View
+                    </button>
+                  </div>
+                </div>
+
+                {previewTab === "tables" && (
+                  <div className="space-y-4">
+                    {result.tables.map((tbl, idx) => (
+                      <div key={idx} className="rounded-lg border border-border-subtle bg-surface-raised/40 p-4 font-mono text-xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-text-primary">{tbl.title || `Table ${idx + 1}`}</span>
+                          <span className="text-[10px] text-text-muted">{tbl.rowCount} rows × {tbl.columnCount} columns</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b border-border-subtle bg-surface-raised">
+                                {tbl.headers.map((h, hIdx) => (
+                                  <th key={hIdx} className="p-2 font-bold text-text-primary">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {tbl.rows.map((r, rIdx) => (
+                                <tr key={rIdx} className="border-b border-border-subtle/50 hover:bg-surface-raised/60">
+                                  {r.map((c, cIdx) => (
+                                    <td key={cIdx} className="p-2 text-text-secondary">{c}</td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2 border-t border-border-subtle">
               <Button variant="secondary" size="sm" onClick={() => setState("empty")} className="font-mono text-xs">
                 Convert Another PDF
               </Button>

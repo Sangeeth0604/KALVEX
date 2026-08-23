@@ -9,6 +9,8 @@ import { AiOperationType } from "@/lib/ai-workspace/types";
 import { parseTableFromText, exportTableToBlob } from "@/lib/tools/table-parser/table-engine";
 import { sanitizeDocument, COMMON_PII_RULES } from "@/lib/tools/document-sanitizer/sanitizer-engine";
 import { minifySvg } from "@/lib/tools/svg-minifier/svg-engine";
+import { convertPdfToOffice } from "@/lib/tools/pdf-to-office/office-engine";
+import { renderMarkdownOrHtmlToPdf } from "@/lib/tools/markdown-to-pdf/markdown-pdf-engine";
 import { ImageOutputFormat } from "@/lib/tools/format-converter/types";
 
 class CapabilityRegistry {
@@ -334,7 +336,69 @@ class CapabilityRegistry {
       },
     });
 
-    // 9. AI Workspace: Summarize
+    // 9. PDF to Office Formats
+    this.register({
+      capabilityId: "tool:pdf-to-office",
+      title: "PDF to Office Formats",
+      description: "Converts PDF documents into editable Word (.docx) and Excel (.xlsx) structures.",
+      sourceTool: "pdf-to-office",
+      acceptedInputKinds: ["pdf"],
+      outputKind: "text",
+      execute: async (artifact, params, onProgress) => {
+        const targetFormat = params?.targetFormat === "xlsx" ? "xlsx" : "docx";
+        onProgress?.({ stage: `Converting PDF to ${targetFormat.toUpperCase()}...` });
+        const fileObj =
+          artifact.file instanceof File
+            ? artifact.file
+            : new File([artifact.file], artifact.name, { type: "application/pdf" });
+        const result = await convertPdfToOffice(fileObj, { targetFormat });
+        return {
+          file: result.outputBlob,
+          name: result.outputName,
+          mimeType: result.outputBlob.type,
+          kind: "text",
+          metadata: {
+            format: result.targetFormat,
+            wordCount: result.wordCount,
+            tablesCount: result.tablesCount,
+            durationMs: result.durationMs,
+          },
+        };
+      },
+    });
+
+    // 10. Markdown & HTML to PDF
+    this.register({
+      capabilityId: "tool:markdown-to-pdf",
+      title: "Markdown & HTML to PDF",
+      description: "Renders technical markdown and HTML into clean vector PDF documents.",
+      sourceTool: "markdown-to-pdf",
+      acceptedInputKinds: ["text"],
+      outputKind: "pdf",
+      execute: async (artifact, _params, onProgress) => {
+        onProgress?.({ stage: "Rendering markdown document to PDF..." });
+        const textContent =
+          artifact.metadata?.text ||
+          (artifact.file instanceof Blob ? await artifact.file.text() : "");
+        const result = await renderMarkdownOrHtmlToPdf(textContent as string, {
+          mode: artifact.name.endsWith(".html") ? "html" : "markdown",
+          pageSize: "a4",
+          title: artifact.name.replace(/\.[^/.]+$/, ""),
+        });
+        return {
+          file: result.outputBlob,
+          name: result.outputName,
+          mimeType: "application/pdf",
+          kind: "pdf",
+          metadata: {
+            pageCount: result.pageCount,
+            durationMs: result.durationMs,
+          },
+        };
+      },
+    });
+
+    // 11. AI Workspace: Summarize
     this.registerAiCapability("summarize", "AI Document Summarization", "Generates high-density executive summary and action items.");
 
     // 10. AI Workspace: Extract Key Information
