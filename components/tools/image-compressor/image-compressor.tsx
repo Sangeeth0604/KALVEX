@@ -45,15 +45,8 @@ function ImageCompressorInner() {
     if (metadata?.objectUrl) {
       URL.revokeObjectURL(metadata.objectUrl);
     }
-    if (result?.objectUrl && result.objectUrl !== metadata?.objectUrl) {
-      URL.revokeObjectURL(result.objectUrl);
-    }
-    if (
-      result?.effectiveObjectUrl &&
-      result.effectiveObjectUrl !== metadata?.objectUrl &&
-      result.effectiveObjectUrl !== result.objectUrl
-    ) {
-      URL.revokeObjectURL(result.effectiveObjectUrl);
+    if (result?.outputObjectUrl && result.outputObjectUrl !== metadata?.objectUrl) {
+      URL.revokeObjectURL(result.outputObjectUrl);
     }
   }, [metadata, result]);
 
@@ -129,14 +122,14 @@ function ImageCompressorInner() {
     try {
       const res = await compressImage(file, settings, metadata);
 
-      // Register compressed output into Document Bus
+      // Register authoritative compressed output into Document Bus
       const busDoc = documentBus.publishArtifact({
-        file: res.effectiveBlob,
-        name: res.effectiveFileName,
+        file: res.outputBlob,
+        name: res.outputFilename,
         mimeType: res.outputMimeType,
         sourceTool: "image-compressor",
         kind: "image",
-        previewUrl: res.effectiveObjectUrl,
+        previewUrl: res.outputObjectUrl,
         metadata: {
           width: res.width,
           height: res.height,
@@ -155,16 +148,14 @@ function ImageCompressorInner() {
         inputFilename: metadata.name,
         inputKind: "image",
         inputSize: metadata.size,
-        outputFilename: res.effectiveFileName,
+        outputFilename: res.outputFilename,
         outputKind: "image",
-        outputSize: res.effectiveBlob.size,
+        outputSize: res.outputSize,
         status: "success",
         outcome:
-          res.outcome === "reduced"
+          res.wasCompressed
             ? `Reduced (-${res.savingsPercentage.toFixed(1)}%)`
-            : res.outcome === "equal"
-            ? "No Reduction"
-            : "Output Larger",
+            : "Original Preserved",
         savingsPercentage: res.savingsPercentage,
         reductionBytes: res.reductionBytes,
         durationMs: res.durationMs,

@@ -25,24 +25,39 @@ export interface CompressionSettings {
 export type CompressionOutcome = "reduced" | "equal" | "larger";
 
 export interface CompressionResult {
+  // Authoritative Output State
+  outputBlob: Blob;
+  outputObjectUrl: string;
+  outputFilename: string;
+  outputFormat: string; // "JPEG" | "PNG" | "WEBP"
+  outputMimeType: string; // "image/jpeg" | "image/png" | "image/webp"
+  outputExtension: string; // "jpg" | "png" | "webp"
   originalSize: number;
-  compressedSize: number;
-  reductionBytes: number; // originalSize - compressedSize (can be negative if larger)
-  savingsPercentage: number; // (1 - compressedSize / originalSize) * 100
-  outcome: CompressionOutcome;
-  outputFormat: string;
-  outputMimeType: string;
-  outputExtension: string;
+  outputSize: number;
+  reductionBytes: number;
+  savingsPercentage: number;
+  wasCompressed: boolean;
+  retainedOriginal: boolean;
+  reason?: string;
   width: number;
   height: number;
-  blob: Blob; // The generated candidate blob
-  objectUrl: string; // The generated blob URL
-  effectiveBlob: Blob; // The smaller/optimal blob (original or generated)
+  durationMs: number;
+  busDocumentId?: string;
+
+  // Diagnostic Candidate Info (if re-encoding was attempted)
+  candidateSize?: number;
+  candidateMimeType?: string;
+  candidateFormat?: string;
+
+  // Backward compatibility aliases
+  blob: Blob;
+  objectUrl: string;
+  effectiveBlob: Blob;
   effectiveObjectUrl: string;
   effectiveFileName: string;
   fileName: string;
-  durationMs: number;
-  busDocumentId?: string;
+  outcome: CompressionOutcome;
+  compressedSize: number;
 }
 
 export type CompressionErrorCode =
@@ -51,6 +66,7 @@ export type CompressionErrorCode =
   | "EMPTY_FILE"
   | "DECODE_FAILED"
   | "ENCODE_FAILED"
+  | "VALIDATION_FAILED"
   | "UNKNOWN";
 
 export interface CompressionError {

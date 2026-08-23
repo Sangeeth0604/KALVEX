@@ -62,8 +62,8 @@ class CapabilityRegistry {
         );
 
         return {
-          file: result.effectiveBlob,
-          name: result.effectiveFileName,
+          file: result.outputBlob,
+          name: result.outputFilename,
           mimeType: result.outputMimeType,
           kind: "image",
           metadata: {
