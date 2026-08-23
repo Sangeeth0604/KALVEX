@@ -13,8 +13,7 @@ import {
 } from "@/lib/tools/table-parser/types";
 import {
   exportTableToBlob,
-  extractTextFromDocument,
-  parseTableFromText,
+  extractTablesFromDocument,
 } from "@/lib/tools/table-parser/table-engine";
 import { documentBus } from "@/lib/document-bus/document-bus";
 import { historyManager } from "@/lib/history";
@@ -35,12 +34,7 @@ function TableParserInner() {
     const start = performance.now();
 
     try {
-      const rawText = await extractTextFromDocument(file);
-      if (!rawText.trim()) {
-        throw { code: "NO_TABLE_FOUND", message: "No readable text or tabular structure found." };
-      }
-
-      const tables = parseTableFromText(rawText);
+      const { tables, rawText } = await extractTablesFromDocument(file);
       if (tables.length === 0) {
         throw { code: "NO_TABLE_FOUND", message: "Could not identify table structure in file." };
       }

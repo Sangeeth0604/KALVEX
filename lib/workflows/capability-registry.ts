@@ -6,7 +6,7 @@ import { analyzeSourceDocument, convertDocument } from "@/lib/tools/format-conve
 import { buildDocumentContext } from "@/lib/ai-workspace/context-builder";
 import { executeAiOperation } from "@/lib/ai-workspace/ai-client";
 import { AiOperationType } from "@/lib/ai-workspace/types";
-import { parseTableFromText, exportTableToBlob } from "@/lib/tools/table-parser/table-engine";
+import { extractTablesFromDocument, exportTableToBlob } from "@/lib/tools/table-parser/table-engine";
 import { sanitizeDocument, COMMON_PII_RULES } from "@/lib/tools/document-sanitizer/sanitizer-engine";
 import { minifySvg } from "@/lib/tools/svg-minifier/svg-engine";
 import { convertPdfToOffice } from "@/lib/tools/pdf-to-office/office-engine";
@@ -253,11 +253,12 @@ class CapabilityRegistry {
       outputKind: "text",
       execute: async (artifact, _params, onProgress) => {
         onProgress?.({ stage: "Parsing tabular grid structures..." });
-        const textContent =
-          artifact.metadata?.text ||
-          (artifact.file instanceof Blob ? await artifact.file.text() : "");
-        const tables = parseTableFromText(textContent as string);
-        const primaryTable = tables[0] || { headers: ["Text"], rows: [[textContent as string]], rowCount: 1, columnCount: 1, confidenceScore: 0.5 };
+        const fileObj =
+          artifact.file instanceof File
+            ? artifact.file
+            : new File([artifact.file], artifact.name, { type: artifact.mimeType });
+        const { tables } = await extractTablesFromDocument(fileObj);
+        const primaryTable = tables[0] || { headers: ["Column_1"], rows: [], rowCount: 0, columnCount: 1, confidenceScore: 0 };
         const csvBlob = exportTableToBlob(primaryTable, "csv");
         return {
           file: csvBlob,
