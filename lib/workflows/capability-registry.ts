@@ -6,6 +6,9 @@ import { analyzeSourceDocument, convertDocument } from "@/lib/tools/format-conve
 import { buildDocumentContext } from "@/lib/ai-workspace/context-builder";
 import { executeAiOperation } from "@/lib/ai-workspace/ai-client";
 import { AiOperationType } from "@/lib/ai-workspace/types";
+import { parseTableFromText, exportTableToBlob } from "@/lib/tools/table-parser/table-engine";
+import { sanitizeDocument, COMMON_PII_RULES } from "@/lib/tools/document-sanitizer/sanitizer-engine";
+import { minifySvg } from "@/lib/tools/svg-minifier/svg-engine";
 import { ImageOutputFormat } from "@/lib/tools/format-converter/types";
 
 class CapabilityRegistry {
@@ -238,16 +241,109 @@ class CapabilityRegistry {
       },
     });
 
-    // 6. AI Workspace: Summarize
+    // 6. Tabular Structure Parser
+    this.register({
+      capabilityId: "tool:table-parser",
+      title: "Tabular Structure Parser",
+      description: "Extracts tables and structured grids into CSV / Excel spreadsheets.",
+      sourceTool: "table-parser",
+      acceptedInputKinds: ["text", "pdf"],
+      outputKind: "text",
+      execute: async (artifact, _params, onProgress) => {
+        onProgress?.({ stage: "Parsing tabular grid structures..." });
+        const textContent =
+          artifact.metadata?.text ||
+          (artifact.file instanceof Blob ? await artifact.file.text() : "");
+        const tables = parseTableFromText(textContent as string);
+        const primaryTable = tables[0] || { headers: ["Text"], rows: [[textContent as string]], rowCount: 1, columnCount: 1, confidenceScore: 0.5 };
+        const csvBlob = exportTableToBlob(primaryTable, "csv");
+        return {
+          file: csvBlob,
+          name: `${artifact.name.replace(/\.[^/.]+$/, "")}-table.csv`,
+          mimeType: "text/csv",
+          kind: "text",
+          metadata: {
+            rowCount: primaryTable.rowCount,
+            columnCount: primaryTable.columnCount,
+          },
+        };
+      },
+    });
+
+    // 7. Document Sanitizer & Redactor
+    this.register({
+      capabilityId: "tool:document-sanitizer",
+      title: "Document Sanitizer & Redactor",
+      description: "Permanently purges metadata and sensitive text layers.",
+      sourceTool: "document-sanitizer",
+      acceptedInputKinds: ["pdf", "text"],
+      outputKind: "pdf",
+      execute: async (artifact, _params, onProgress) => {
+        onProgress?.({ stage: "Purging metadata and sanitizing document..." });
+        const fileObj =
+          artifact.file instanceof File
+            ? artifact.file
+            : new File([artifact.file], artifact.name, { type: artifact.mimeType });
+        const result = await sanitizeDocument(fileObj, {
+          stripMetadata: true,
+          stripHiddenLayers: true,
+          redactionRules: COMMON_PII_RULES,
+        });
+        return {
+          file: result.outputBlob,
+          name: result.outputName,
+          mimeType: result.outputBlob.type,
+          kind: result.outputBlob.type.includes("pdf") ? "pdf" : "text",
+          metadata: {
+            redactions: result.redactedCount,
+            metadataStripped: result.metadataFieldsStripped.length,
+            durationMs: result.durationMs,
+          },
+        };
+      },
+    });
+
+    // 8. SVG Vector Minifier
+    this.register({
+      capabilityId: "tool:svg-minifier",
+      title: "SVG Vector Minifier",
+      description: "Cleans and minimizes SVG vector paths and metadata.",
+      sourceTool: "svg-minifier",
+      acceptedInputKinds: ["image"],
+      outputKind: "image",
+      execute: async (artifact, _params, onProgress) => {
+        onProgress?.({ stage: "Minifying SVG vector paths..." });
+        const svgText = artifact.file instanceof Blob ? await artifact.file.text() : "";
+        const result = minifySvg(svgText, {
+          precision: 2,
+          removeMetadata: true,
+          removeComments: true,
+          removeEmptyContainers: true,
+          collapseWhitespace: true,
+        }, artifact.name);
+        return {
+          file: result.outputBlob,
+          name: `minified-${artifact.name}`,
+          mimeType: "image/svg+xml",
+          kind: "image",
+          metadata: {
+            savingsPercentage: result.reductionPercentage,
+            durationMs: result.durationMs,
+          },
+        };
+      },
+    });
+
+    // 9. AI Workspace: Summarize
     this.registerAiCapability("summarize", "AI Document Summarization", "Generates high-density executive summary and action items.");
 
-    // 7. AI Workspace: Extract Key Information
+    // 10. AI Workspace: Extract Key Information
     this.registerAiCapability("extract_key_info", "AI Key Information Extraction", "Extracts parties, dates, financials, and core obligations.");
 
-    // 8. AI Workspace: Explain Simply
+    // 11. AI Workspace: Explain Simply
     this.registerAiCapability("explain_simply", "AI Plain-English Explainer", "Demystifies technical/legal jargon into plain English.");
 
-    // 9. AI Workspace: Targeted Q&A
+    // 12. AI Workspace: Targeted Q&A
     this.registerAiCapability("targeted_qa", "AI Grounded Q&A", "Answers specific inquiries with verbatim clause citations.");
   }
 

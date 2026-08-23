@@ -108,11 +108,13 @@ function OcrExtractorInner() {
       setResult(ocrRes);
       setState("success");
     } catch (err) {
-      const ocrErr: OcrError =
-        (err as OcrError).message !== undefined
-          ? (err as OcrError)
-          : { code: "OCR_FAILED", message: "Failed to extract text from document." };
-      setError(ocrErr);
+      console.error("OCR extraction failed:", err);
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : (err as OcrError)?.message || "Failed to extract text from document.";
+      const errCode = (err as OcrError)?.code || "OCR_FAILED";
+      setError({ code: errCode, message: errMsg });
       setState("error");
     }
   }, [docInfo]);

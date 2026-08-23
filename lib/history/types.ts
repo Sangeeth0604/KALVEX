@@ -7,6 +7,10 @@ export type HistoryOperationType =
   | "split"
   | "ocr"
   | "optimize"
+  | "create"
+  | "sanitize"
+  | "diff"
+  | "table-parse"
   | "ai_operation"
   | "workflow_run";
 

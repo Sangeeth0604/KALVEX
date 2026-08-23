@@ -82,10 +82,11 @@ async function getPdfjs() {
     try {
       const pdfjs = await import("pdfjs-dist");
       if (pdfjs.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version || "4.10.38"}/build/pdf.worker.min.mjs`;
+        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version || "4.10.38"}/pdf.worker.min.mjs`;
       }
       pdfjsCache = pdfjs;
-    } catch {
+    } catch (err) {
+      console.error("Failed to dynamically import pdfjs-dist:", err);
       return null;
     }
   }
@@ -150,10 +151,11 @@ export async function loadDocumentInfo(file: File): Promise<LoadedDocumentInfo> 
         previewUrl,
         aspectRatio,
       };
-    } catch {
+    } catch (err) {
+      console.error("PDF preview generation error:", err);
       throw {
         code: "CORRUPTED_FILE",
-        message: `Could not parse PDF "${file.name}". The document may be corrupted or password-protected.`,
+        message: `Could not parse PDF "${file.name}". ${err instanceof Error ? err.message : "The document may be corrupted or password-protected."}`,
       } as OcrError;
     }
   } else {
@@ -195,19 +197,42 @@ export async function getOcrWorker(
   onProgress?: (progress: OcrProgress) => void
 ): Promise<Worker> {
   if (!activeWorker) {
-    activeWorker = await createWorker("eng", 1, {
-      logger: (m) => {
-        if (m.status === "recognizing text" && onProgress) {
-          const rawProg = Math.round((m.progress || 0) * 100);
-          onProgress({
-            currentPage: 1,
-            totalPages: 1,
-            stage: "Recognizing text",
-            progress: rawProg,
-          });
-        }
-      },
-    });
+    try {
+      activeWorker = await createWorker("eng", 1, {
+        workerPath: "https://cdn.jsdelivr.net/npm/tesseract.js@v5/dist/worker.min.js",
+        corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5",
+        langPath: "https://tessdata.projectnaptha.com/4.0.0_fast",
+        logger: (m) => {
+          if (onProgress) {
+            const rawProg = Math.round((m.progress || 0) * 100);
+            onProgress({
+              currentPage: 1,
+              totalPages: 1,
+              stage: m.status || "Recognizing text",
+              progress: Math.max(10, Math.min(95, rawProg)),
+            });
+          }
+        },
+        errorHandler: (err) => {
+          console.error("Tesseract worker error:", err);
+        },
+      });
+    } catch (err) {
+      console.warn("CDN Tesseract worker init failed, attempting fallback init:", err);
+      activeWorker = await createWorker("eng", 1, {
+        logger: (m) => {
+          if (onProgress) {
+            const rawProg = Math.round((m.progress || 0) * 100);
+            onProgress({
+              currentPage: 1,
+              totalPages: 1,
+              stage: m.status || "Recognizing text",
+              progress: Math.max(10, Math.min(95, rawProg)),
+            });
+          }
+        },
+      });
+    }
   }
   return activeWorker;
 }
