@@ -235,6 +235,16 @@ class WorkflowManager {
   }
 
   /**
+   * Reset all custom workflows to default factory templates.
+   */
+  public resetToDefaults(): void {
+    this.ensureInitialized();
+    this.customWorkflows = [];
+    this.persistToStorage();
+    this.notifyListeners();
+  }
+
+  /**
    * Subscribe to workflow collection mutations.
    */
   public subscribe(listener: WorkflowListener): () => void {

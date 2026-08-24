@@ -78,6 +78,11 @@ export function Footer() {
                   Pricing & Plans
                 </Link>
               </li>
+              <li>
+                <Link href="/settings" className="hover:text-text-primary transition-colors">
+                  Workspace Settings
+                </Link>
+              </li>
             </ul>
           </div>
 

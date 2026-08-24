@@ -15,12 +15,13 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Home", href: "/" },
+  { label: "Dashboard", href: "/dashboard" },
   { label: "Tools", href: "/tools" },
   { label: "AI Workspace", href: "/ai-workspace" },
   { label: "Workflows", href: "/workflows", badge: "New" },
   { label: "History", href: "/history" },
   { label: "Pricing", href: "/pricing" },
+  { label: "Settings", href: "/settings" },
 ];
 
 export function Navbar() {

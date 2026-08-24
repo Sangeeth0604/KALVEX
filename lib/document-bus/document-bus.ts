@@ -199,6 +199,10 @@ class DocumentBusManager {
     this.notifyListeners();
   }
 
+  public clearAll(): void {
+    this.clearArtifacts();
+  }
+
   public clearDocuments(): void {
     this.clearArtifacts();
   }

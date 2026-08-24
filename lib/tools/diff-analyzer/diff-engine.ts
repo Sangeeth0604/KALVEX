@@ -124,12 +124,12 @@ function normalizeAnchor(text: string): string {
     .trim();
 }
 
-function isSectionHeading(text: string): boolean {
+export function isSectionHeading(text: string): boolean {
   const normalized = normalizeAnchor(text);
   return SECTION_HEADINGS.has(normalized);
 }
 
-function isProjectTitle(text: string): boolean {
+export function isProjectTitle(text: string): boolean {
   const value = text
     .replace(/\s+/g, " ")
     .trim();
@@ -152,7 +152,7 @@ function isProjectTitle(text: string): boolean {
   return false;
 }
 
-function getSectionForLine(lines: string[], index: number): string {
+export function getSectionForLine(lines: string[], index: number): string {
   let currentSection = "__header__";
 
   for (let i = 0; i <= index; i++) {
