@@ -11,6 +11,7 @@ import { sanitizeDocument, COMMON_PII_RULES } from "@/lib/tools/document-sanitiz
 import { minifySvg } from "@/lib/tools/svg-minifier/svg-engine";
 import { convertPdfToOffice } from "@/lib/tools/pdf-to-office/office-engine";
 import { renderMarkdownOrHtmlToPdf } from "@/lib/tools/markdown-to-pdf/markdown-pdf-engine";
+import { extractDocumentText } from "@/lib/tools/diff-analyzer/diff-engine";
 import { ImageOutputFormat } from "@/lib/tools/format-converter/types";
 
 class CapabilityRegistry {
@@ -394,6 +395,34 @@ class CapabilityRegistry {
           metadata: {
             pageCount: result.pageCount,
             durationMs: result.durationMs,
+          },
+        };
+      },
+    });
+
+    // 10. Document Difference Analyzer
+    this.register({
+      capabilityId: "tool:diff-analyzer",
+      title: "Document Difference Analyzer",
+      description: "Extracts normalized textual differences and revisions.",
+      sourceTool: "diff-analyzer",
+      acceptedInputKinds: ["text", "pdf", "document"],
+      outputKind: "text",
+      execute: async (artifact, _params, onProgress) => {
+        onProgress?.({ stage: "Extracting normalized document text..." });
+        const fileObj =
+          artifact.file instanceof File
+            ? artifact.file
+            : new File([artifact.file], artifact.name, { type: artifact.mimeType });
+        const text = await extractDocumentText(fileObj);
+        const textBlob = new Blob([text], { type: "text/plain" });
+        return {
+          file: textBlob,
+          name: `${artifact.name.replace(/\.[^/.]+$/, "")}-extracted.txt`,
+          mimeType: "text/plain",
+          kind: "text",
+          metadata: {
+            wordCount: text.split(/\s+/).filter(Boolean).length,
           },
         };
       },
