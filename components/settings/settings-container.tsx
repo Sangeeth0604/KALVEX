@@ -355,9 +355,9 @@ export function SettingsContainer() {
         {/* Plan Information Card */}
         <div className="p-6 rounded-xl border border-border-subtle bg-surface-raised/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono text-xs">
           <div>
-            <span className="text-accent font-bold uppercase">Plan Status: Public Beta Tier</span>
+            <span className="text-accent font-bold uppercase">Plan Status: Free Forever (Ad-Supported)</span>
             <p className="text-text-muted mt-0.5">
-              Enjoy unlimited client-side processing across all 12 tools and custom workflows.
+              Enjoy full client-side processing across all 12 tools and custom workflows with zero recurring costs.
             </p>
           </div>
           <Link href="/pricing">

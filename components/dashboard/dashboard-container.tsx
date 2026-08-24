@@ -50,6 +50,15 @@ const DASHBOARD_TOOLS: ToolCardInfo[] = [
     icon: "🗜️",
   },
   {
+    id: "target-size-compressor",
+    name: "1 MB Compressor",
+    category: "Compress",
+    description: "Compress images and PDF files to 1 MB or less, or customize your target size.",
+    href: "/tools/target-size-compressor",
+    badge: "1 MB Target",
+    icon: "🎯",
+  },
+  {
     id: "pdf-to-office",
     name: "PDF to Office",
     category: "Convert",

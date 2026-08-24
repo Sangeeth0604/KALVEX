@@ -13,6 +13,7 @@ import { convertPdfToOffice } from "@/lib/tools/pdf-to-office/office-engine";
 import { renderMarkdownOrHtmlToPdf } from "@/lib/tools/markdown-to-pdf/markdown-pdf-engine";
 import { extractDocumentText } from "@/lib/tools/diff-analyzer/diff-engine";
 import { ImageOutputFormat } from "@/lib/tools/format-converter/types";
+import { compressToTargetSize } from "@/lib/tools/target-size-compressor/engine";
 
 class CapabilityRegistry {
   private handlers: Map<string, WorkflowCapabilityHandler> = new Map();
@@ -491,6 +492,44 @@ class CapabilityRegistry {
             durationMs: result.metrics.durationMs,
             providerName: result.metrics.providerName,
             isSimulated: result.metrics.isSimulated,
+          },
+        };
+      },
+    });
+
+    // 16. 1 MB Compressor
+    this.register({
+      capabilityId: "tool:target-size-compressor",
+      title: "1 MB Compressor",
+      description: "Compresses files to 1 MB or less, or a specific target size (e.g. 500 KB, 200 KB).",
+      sourceTool: "target-size-compressor",
+      acceptedInputKinds: ["image", "pdf"],
+      outputKind: "document",
+      execute: async (artifact, params, onProgress) => {
+        onProgress?.({ stage: "Compressing to target size..." });
+        const fileObj =
+          artifact.file instanceof File
+            ? artifact.file
+            : new File([artifact.file], artifact.name, { type: artifact.mimeType });
+
+        const targetBytes =
+          typeof params?.targetBytes === "number" ? params.targetBytes : 1024 * 1024;
+
+        const res = await compressToTargetSize(fileObj, artifact.name, targetBytes, (p) => {
+          onProgress?.({ stage: p.stage, percent: (p.currentAttempt / p.maxAttempts) * 100 });
+        });
+
+        return {
+          file: res.outputBlob,
+          name: res.outputFilename,
+          mimeType: res.outputBlob.type || artifact.mimeType,
+          kind: res.outputFormat === "PDF" ? "pdf" : "image",
+          metadata: {
+            targetReached: res.targetReached,
+            savingsBytes: res.savingsBytes,
+            savingsPercentage: res.savingsPercentage,
+            compressionRatio: res.compressionRatio,
+            durationMs: res.durationMs,
           },
         };
       },
